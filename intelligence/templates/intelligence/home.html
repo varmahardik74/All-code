@@ -1,0 +1,47 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Between Nations</title>
+    <link rel="stylesheet" href="{% static 'intelligence/css/styles.css' %}">
+</head>
+<body class="home-body">
+    <main class="landing-shell">
+        <header class="home-brand"><span class="brand-mark">BN</span><span>BETWEEN NATIONS</span></header>
+        <section class="hero">
+            <p class="eyebrow">GEOPOLITICAL COVERAGE ANALYSIS</p>
+            <h1>Compare the<br><em>space between</em><br>nations.</h1>
+            <p class="hero-copy">Compare two nations through recent geopolitical coverage and key national indicators.</p>
+        </section>
+
+        <section class="selection-card" aria-labelledby="selection-title">
+            <div class="selection-intro">
+                <p class="section-label">START A COMPARISON</p>
+                <h2 id="selection-title">Select two nations</h2>
+                <p>Analysis based on the last 7 days of geopolitical coverage.</p>
+            </div>
+            {% if form.non_field_errors %}<div class="alert" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+            <form method="post" id="comparison-form">
+                {% csrf_token %}
+                <div class="country-selectors">
+                    <div class="field">
+                        <label for="{{ form.country_a.id_for_label }}">COUNTRY A</label>
+                        {{ form.country_a }}
+                        {{ form.country_a.errors }}
+                    </div>
+                    <div class="versus" aria-hidden="true">×</div>
+                    <div class="field">
+                        <label for="{{ form.country_b.id_for_label }}">COUNTRY B</label>
+                        {{ form.country_b }}
+                        {{ form.country_b.errors }}
+                    </div>
+                </div>
+                <button class="primary-button" type="submit">COMPARE NATIONS <span aria-hidden="true">→</span></button>
+            </form>
+        </section>
+    </main>
+    <script src="{% static 'intelligence/js/main.js' %}"></script>
+</body>
+</html>
