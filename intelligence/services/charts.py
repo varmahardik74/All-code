@@ -124,8 +124,8 @@ def generate_indicator_comparison_chart(
         v_b = obs_b.get("value") if obs_b else None
 
         labels.append(label)
-        val_a.append(float(v_a) if v_a is not None else 0.0)
-        val_b.append(float(v_b) if v_b is not None else 0.0)
+        val_a.append(float(v_a) if v_a is not None else np.nan)
+        val_b.append(float(v_b) if v_b is not None else np.nan)
 
     x = np.arange(len(labels))
     width = 0.35

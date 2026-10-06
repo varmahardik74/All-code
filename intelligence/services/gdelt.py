@@ -8,7 +8,7 @@ ANALYSIS WINDOW: Last 7 days only.
 No historical comparison window is queried here.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import logging
 import time
@@ -20,6 +20,7 @@ from django.db import transaction
 from django.utils.dateparse import parse_datetime
 
 from intelligence.models import Article, Country
+from intelligence.services.pairs import order_countries_by_iso, unordered_pair_q
 
 logger = logging.getLogger(__name__)
 
@@ -36,17 +37,31 @@ COUNTRY_ALIASES = {
     "CHN": [r"\bchina\b", r"\bchinese\b", r"\bbeijing\b"],
     "IND": [r"\bindia\b", r"\bindian\b", r"\bnew delhi\b"],
     "IRN": [r"\biran\b", r"\biranian\b", r"\btehran\b"],
-    "SAU": [r"\bsaudi arabia\b", r"\bsaudi\b", r"\briyadh\b"],
-    "TUR": [r"\bturkey\b", r"\bturkish\b", r"\btürkiye\b", r"\bankara\b"],
-    "FRA": [r"\bfrance\b", r"\bfrench\b", r"\bparis\b"],
+    "RUS": [r"\brussia\b", r"\brussian\b", r"\bmoscow\b"],
+    "JPN": [r"\bjapan\b", r"\bjapanese\b", r"\btokyo\b"],
     "DEU": [r"\bgermany\b", r"\bgerman\b", r"\bberlin\b"],
-    "BRA": [r"\bbrazil\b", r"\bbrazilian\b", r"\bbrasilia\b"],
-    "MEX": [r"\bmexico\b", r"\bmexican\b"],
+    "GBR": [r"\bunited kingdom\b", r"\buk\b", r"\bbritish\b", r"\blondon\b"],
+    "PAK": [r"\bpakistan\b", r"\bpakistani\b", r"\bislamabad\b"],
+    "ISR": [r"\bisrael\b", r"\bisraeli\b", r"\bjerusalem\b"],
+}
+
+COUNTRY_QUERY_TERMS = {
+    "USA": ("United States", "U.S.", "American"),
+    "CHN": ("China", "Chinese", "Beijing"),
+    "IND": ("India", "Indian", "New Delhi"),
+    "IRN": ("Iran", "Iranian", "Tehran"),
+    "RUS": ("Russia", "Russian", "Moscow"),
+    "DEU": ("Germany", "German", "Berlin"),
+    "JPN": ("Japan", "Japanese", "Tokyo"),
+    "GBR": ("United Kingdom", "UK", "British"),
+    "PAK": ("Pakistan", "Pakistani", "Islamabad"),
+    "ISR": ("Israel", "Israeli", "Jerusalem"),
 }
 
 RELATIONSHIP_TERMS = re.compile(
-    r"\b(bilateral|diplomatic|diplomacy|summit|talks|meeting|trade|tariff|border|"
-    r"relations?|agreement|treaty|sanctions?|military|security|cooperation|tension|clash)\b",
+    r"\b(bilateral|diplomatic|diplomacy|summit|talks?|dialogue|meeting|trade|tariff|"
+    r"border|relations?|ties|agreement|treaty|sanctions?|military|security|defen[cs]e|"
+    r"cooperation|tension|clash|economic|export|import|investment|minister)\b",
     re.IGNORECASE,
 )
 
@@ -68,17 +83,19 @@ class GDELTParseError(GDELTError):
 
 
 def build_bilateral_query(country_a: Country, country_b: Country) -> str:
-    """Build a bilateral query requiring BOTH countries to appear in coverage.
-
-    Example result: '"India" "China"'
-    """
-    name_a = country_a.name.strip()
-    name_b = country_b.name.strip()
+    """Build a focused query requiring aliases for BOTH countries."""
+    terms_a = COUNTRY_QUERY_TERMS.get(country_a.iso_code, (country_a.name.strip(),))
+    terms_b = COUNTRY_QUERY_TERMS.get(country_b.iso_code, (country_b.name.strip(),))
+    group_a = "(" + " OR ".join(f'"{term}"' for term in terms_a) + ")"
+    group_b = "(" + " OR ".join(f'"{term}"' for term in terms_b) + ")"
     relationship_terms = " OR ".join(
         '"' + term + '"'
-        for term in ("bilateral", "diplomatic", "trade", "border", "security", "relations")
+        for term in (
+            "bilateral", "diplomatic", "trade", "border", "security", "relations",
+            "talks", "dialogue", "agreement", "cooperation", "tension", "military",
+        )
     )
-    return f'"{name_a}" "{name_b}" ({relationship_terms})'
+    return f"{group_a} {group_b} ({relationship_terms})"
 
 
 def _country_patterns(country: Country) -> list[re.Pattern]:
@@ -111,7 +128,7 @@ def _retry_delay(response, backoff: float, attempt: int) -> float:
     return min(max(requested, 0.0), 30.0)
 
 
-def _request_gdelt(params: dict, timeout: int = DEFAULT_TIMEOUT, retries: int = 1, backoff: float = 5.0) -> dict:
+def _request_gdelt(params: dict, timeout: int = DEFAULT_TIMEOUT, retries: int = 0, backoff: float = 5.0) -> dict:
     """Execute a request against the GDELT DOC 2.0 API with retry and rate-limit handling."""
     headers = {"User-Agent": DEFAULT_USER_AGENT}
     last_exception = None
@@ -149,7 +166,7 @@ def _request_gdelt(params: dict, timeout: int = DEFAULT_TIMEOUT, retries: int = 
                 raise GDELTRateLimitError("GDELT returned rate-limit instruction in response body.")
 
             if not text_body:
-                return {}
+                raise GDELTParseError("GDELT returned an empty response.")
 
             try:
                 parsed = response.json()
@@ -180,7 +197,7 @@ def _request_gdelt(params: dict, timeout: int = DEFAULT_TIMEOUT, retries: int = 
 def get_recent_bilateral_articles(
     country_a: Country,
     country_b: Country,
-    max_records: int = 150,
+    max_records: int = 250,
 ) -> list[dict]:
     """Retrieve recent bilateral news articles from the last 7 days.
 
@@ -193,14 +210,17 @@ def get_recent_bilateral_articles(
         "format": "json",
         "maxrecords": min(max_records, 250),
         "timespan": f"{ANALYSIS_WINDOW_DAYS}d",
+        "sort": "datedesc",
     }
 
     raw = _request_gdelt(params)
     articles = []
 
-    if not isinstance(raw, dict) or "articles" not in raw:
-        return articles
+    if not isinstance(raw, dict) or "articles" not in raw or not isinstance(raw["articles"], list):
+        raise GDELTParseError("GDELT ArticleList response did not contain an articles list.")
 
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=ANALYSIS_WINDOW_DAYS)
     for item in raw.get("articles", []):
         url = item.get("url", "").strip()
         title = item.get("title", "").strip()
@@ -226,7 +246,13 @@ def get_recent_bilateral_articles(
                     except (ValueError, TypeError):
                         continue
         if pub_dt is None:
-            pub_dt = datetime.now(timezone.utc)
+            pub_dt = now
+        if pub_dt.tzinfo is None:
+            pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+        else:
+            pub_dt = pub_dt.astimezone(timezone.utc)
+        if not cutoff <= pub_dt <= now:
+            continue
 
         tone = item.get("tone")
         try:
@@ -244,6 +270,7 @@ def get_recent_bilateral_articles(
         if is_bilateral_relevant(article["title"], country_a, country_b):
             articles.append(article)
 
+    articles.sort(key=lambda item: item["published_at"], reverse=True)
     return articles
 
 
@@ -263,8 +290,14 @@ def store_articles(
         return 0
 
     urls = [a["url"] for a in articles_data if a.get("url")]
+    country_a, country_b = order_countries_by_iso(country_a, country_b)
+
     existing_urls = set(
-        Article.objects.filter(url__in=urls).values_list("url", flat=True)
+        Article.objects.filter(
+            url__in=urls,
+        ).filter(
+            unordered_pair_q(country_a, country_b)
+        ).values_list("url", flat=True)
     )
 
     new_objects = []

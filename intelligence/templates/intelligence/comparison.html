@@ -17,7 +17,7 @@
     <section class="pair-banner">
         <p class="eyebrow">COUNTRY COMPARISON</p>
         <h1>{{ country_a.name }} <span>×</span> {{ country_b.name }}</h1>
-        <p class="muted">Analysis window: <strong>Last 7 Days</strong>{% if result %}<span class="dot">·</span> Generated {{ result.metadata.fetched_at|slice:':16'|cut:'T' }}{% if result.metadata.source == 'cached' %}<span class="source-badge">CACHED DATA</span>{% endif %}{% endif %}</p>
+        <p class="muted">Analysis window: <strong>Last 7 Days</strong>{% if result %}<span class="dot">·</span> Generated {{ result.metadata.fetched_at|slice:':16'|cut:'T' }}{% if result.metadata.source == 'cached' %}<span class="source-badge">CACHED DATA</span>{% elif result.metadata.source == 'seeded' %}<span class="source-badge">SEEDED DATA</span>{% endif %}{% endif %}</p>
     </section>
 
     {% if error %}
@@ -52,15 +52,14 @@
 
         <section class="analysis-section" aria-labelledby="narrative-title">
             <div class="section-heading"><span class="section-number">03</span><div><h2 id="narrative-title">Narrative Shift</h2><p>How the focus of coverage changed between the first and latter parts of the seven-day period.</p></div></div>
-            <div class="shift-summary">
+            {% if result.narrative_shift %}<div class="shift-summary">
                 <div><small>EARLIER DOMINANT</small><strong>{{ result.narrative_shift.dominant_earlier_category }}</strong></div>
                 <div class="shift-arrow" aria-hidden="true">→</div>
                 <div><small>LATER DOMINANT</small><strong>{{ result.narrative_shift.dominant_later_category }}</strong></div>
                 <div><small>LARGEST SHIFT</small><strong>{{ result.narrative_shift.largest_positive_shift }}</strong></div>
                 <div><small>SHIFT SCORE</small><strong>{{ result.narrative_shift.shift_score|floatformat:1 }}<em>/100</em></strong></div>
-            </div>
-            <div class="split-labels"><span>FIRST 3 DAYS</span><span>LAST 4 DAYS</span></div>
-            {% if charts.narrative %}<div class="chart-card"><img src="data:image/png;base64,{{ charts.narrative }}" alt="Narrative Shift comparison chart"></div>{% else %}<p class="empty">Narrative Shift is unavailable because there is not enough valid coverage data.</p>{% endif %}
+            </div><div class="split-labels"><span>FIRST 3 DAYS</span><span>LAST 4 DAYS</span></div>
+            {% if charts.narrative %}<div class="chart-card"><img src="data:image/png;base64,{{ charts.narrative }}" alt="Narrative Shift comparison chart"></div>{% endif %}{% else %}<p class="empty">Narrative Shift is unavailable because there is not enough valid coverage data.</p>{% endif %}
         </section>
 
         <section class="analysis-section" aria-labelledby="country-title">

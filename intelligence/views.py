@@ -47,7 +47,10 @@ def comparison(request, iso_a, iso_b):
         activity = result["news_activity"]
         now = datetime.now(timezone.utc)
         dates = pd.date_range(end=now.date(), periods=7, freq="D")
-        timeline = pd.DataFrame({"date": dates, "volume": activity.get("daily_article_count", [])})
+        timeline = pd.DataFrame({
+            "date": dates,
+            "volume": activity.get("daily_article_count", [0] * 7) if activity else [0] * 7,
+        })
         charts = {
             "activity": _chart_data(generate_activity_timeline_chart(timeline, country_a.name, country_b.name)) if result["metadata"].get("gdelt_status") != "success_no_data" else None,
             "narrative": _chart_data(generate_narrative_chart(result["narrative_shift"], country_a.name, country_b.name)) if result["narrative_shift"] else None,

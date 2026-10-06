@@ -7,13 +7,15 @@ Covers:
   and duplicate prevention. All external API tests are strictly mocked.
 """
 
-from io import BytesIO
+from io import BytesIO, StringIO
 from datetime import timedelta
+from pathlib import Path
+import tempfile
 from unittest.mock import MagicMock, patch
 
-from django.core.management import call_command
+from django.core.management import call_command, CommandError
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 import numpy as np
 import pandas as pd
@@ -31,6 +33,7 @@ from intelligence.services.gdelt import (
     GDELTRateLimitError,
     _request_gdelt,
     get_recent_bilateral_articles,
+    build_bilateral_query,
     is_bilateral_relevant,
     store_articles,
 )
@@ -59,9 +62,82 @@ class SeedCountriesCommandTests(TestCase):
     def test_seed_is_idempotent(self):
         call_command("seed_countries")
         call_command("seed_countries")
-        self.assertEqual(Country.objects.count(), 20)
+        self.assertEqual(Country.objects.filter(is_active=True).count(), 10)
         self.assertTrue(Country.objects.filter(iso_code="USA", name="United States").exists())
-        self.assertTrue(Country.objects.filter(iso_code="IDN", name="Indonesia").exists())
+        self.assertTrue(Country.objects.filter(iso_code="PAK", name="Pakistan", is_active=True).exists())
+        self.assertTrue(Country.objects.filter(iso_code="ISR", name="Israel", is_active=True).exists())
+
+    def test_removed_country_is_deactivated_without_deletion(self):
+        legacy = Country.objects.create(name="France", iso_code="FRA", is_active=True)
+        call_command("seed_countries")
+        legacy.refresh_from_db()
+        self.assertFalse(legacy.is_active)
+        self.assertEqual(Country.objects.count(), 11)
+
+
+class SeedArticlesCommandTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        call_command("seed_countries")
+
+    def test_seed_articles_imports_valid_rows(self):
+        out = StringIO()
+        call_command("seed_articles", stdout=out)
+        self.assertEqual(Article.objects.count(), 36)
+        self.assertIn("Rows read: 36", out.getvalue())
+        self.assertIn("Rows inserted: 36", out.getvalue())
+        self.assertIn("Unique pairs represented: 34", out.getvalue())
+        article = Article.objects.get(url__contains="india-china-thaw")
+        self.assertEqual(article.category, "Diplomacy")
+        self.assertEqual(article.tone, 0.0)
+        self.assertEqual(article.country_a.iso_code, "CHN")
+        self.assertEqual(article.country_b.iso_code, "IND")
+
+    def test_seed_articles_is_idempotent(self):
+        call_command("seed_articles")
+        out = StringIO()
+        call_command("seed_articles", stdout=out)
+        self.assertEqual(Article.objects.count(), 36)
+        self.assertIn("Rows inserted: 0", out.getvalue())
+        self.assertIn("Rows skipped as duplicates: 36", out.getvalue())
+
+    def test_invalid_country_code_is_rejected(self):
+        path = self._write_seed_csv("CHN_FRA,FRA,CHN")
+        with self.assertRaises(CommandError):
+            call_command("seed_articles", path=str(path))
+        self.assertEqual(Article.objects.count(), 0)
+        path.unlink(missing_ok=True)
+
+    def test_invalid_pair_key_is_rejected(self):
+        path = self._write_seed_csv("CHN_USA,CHN,IND")
+        with self.assertRaises(CommandError):
+            call_command("seed_articles", path=str(path))
+        self.assertEqual(Article.objects.count(), 0)
+        path.unlink(missing_ok=True)
+
+    def test_country_order_does_not_matter_for_duplicate_detection(self):
+        path = self._write_seed_csv("CHN_IND,IND,CHN")
+        call_command("seed_articles", path=str(path))
+        call_command("seed_articles", path=str(path))
+        self.assertEqual(Article.objects.count(), 1)
+        article = Article.objects.get()
+        self.assertEqual((article.country_a.iso_code, article.country_b.iso_code), ("CHN", "IND"))
+        path.unlink(missing_ok=True)
+
+    def _write_seed_csv(self, pair_info):
+        pair_key, iso_a, iso_b = pair_info.split(",")
+        handle = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8", newline="")
+        with handle:
+            handle.write(
+                "article_id,pair_key,country_a_iso,country_b_iso,title,url,source_domain,"
+                "published_date,published_at_utc,time_precision,tone,category,summary,notes\n"
+            )
+            handle.write(
+                f"1,{pair_key},{iso_a},{iso_b},India and China hold diplomatic talks,"
+                "https://example.com/seed-test,example.com,2026-10-02,,date_only,"
+                "neutral,Diplomacy,Summary,Notes\n"
+            )
+        return Path(handle.name)
 
 
 class HomePageTests(TestCase):
@@ -78,9 +154,12 @@ class HomePageTests(TestCase):
     def test_dropdowns_contain_seeded_countries(self):
         response = self.client.get("/")
         self.assertContains(response, "United States")
-        self.assertContains(response, "Indonesia")
-        self.assertEqual(response.context["form"].fields["country_a"].queryset.count(), 20)
-        self.assertEqual(response.context["form"].fields["country_b"].queryset.count(), 20)
+        self.assertContains(response, "Pakistan")
+        self.assertContains(response, "Israel")
+        self.assertNotContains(response, "Indonesia")
+        self.assertNotContains(response, "France")
+        self.assertEqual(response.context["form"].fields["country_a"].queryset.count(), 10)
+        self.assertEqual(response.context["form"].fields["country_b"].queryset.count(), 10)
 
     def test_same_country_selection_is_rejected(self):
         country = Country.objects.get(iso_code="USA")
@@ -91,7 +170,9 @@ class HomePageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Select two different countries.")
 
-    def test_successful_comparison_renders_dashboard(self):
+    @patch("intelligence.services.analysis.fetch_all_country_indicators", return_value={})
+    @patch("intelligence.services.analysis.get_recent_bilateral_articles", return_value=[])
+    def test_successful_comparison_renders_dashboard(self, mock_articles, mock_indicators):
         usa = Country.objects.get(iso_code="USA")
         chn = Country.objects.get(iso_code="CHN")
         response = self.client.post(
@@ -151,12 +232,31 @@ class GDELTServiceTests(TestCase):
         self.assertEqual(articles[0]["url"], "https://example.com/article")
         mock_get.assert_called_once()
         self.assertEqual(mock_get.call_args.kwargs["params"]["mode"], "ArtList")
-        self.assertEqual(mock_get.call_args.kwargs["params"]["maxrecords"], 150)
+        self.assertEqual(mock_get.call_args.kwargs["params"]["maxrecords"], 250)
+        self.assertEqual(mock_get.call_args.kwargs["params"]["timespan"], "7d")
+        self.assertEqual(mock_get.call_args.kwargs["params"]["sort"], "datedesc")
+
+    def test_final_country_aliases_and_query(self):
+        pakistan = Country.objects.create(name="Pakistan", iso_code="PAK")
+        israel = Country.objects.create(name="Israel", iso_code="ISR")
+        self.assertTrue(is_bilateral_relevant("Pakistan and Israel hold security talks", pakistan, israel))
+        self.assertIn('"Pakistani"', build_bilateral_query(pakistan, israel))
+        self.assertIn('"Israeli"', build_bilateral_query(pakistan, israel))
+
+    def test_article_dates_are_sorted_newest_first(self):
+        response = MagicMock(status_code=200, text="{}")
+        response.json.return_value = {"articles": [
+            {"title": "India and China hold trade talks", "url": "https://example.com/old", "domain": "example.com", "seendate": "20261003T120000Z"},
+            {"title": "India and China sign a diplomatic agreement", "url": "https://example.com/new", "domain": "example.com", "seendate": "20261004T120000Z"},
+        ]}
+        with patch("requests.get", return_value=response):
+            articles = get_recent_bilateral_articles(self.country_a, self.country_b)
+        self.assertEqual([article["url"] for article in articles], ["https://example.com/new", "https://example.com/old"])
 
     @patch("requests.get")
     def test_empty_gdelt_result(self, mock_get):
-        mock_response = MagicMock(status_code=200, headers={"Content-Type": "application/json"}, text="{}")
-        mock_response.json.return_value = {}
+        mock_response = MagicMock(status_code=200, headers={"Content-Type": "application/json"}, text='{"articles": []}')
+        mock_response.json.return_value = {"articles": []}
         mock_get.return_value = mock_response
 
         articles = get_recent_bilateral_articles(self.country_a, self.country_b)
@@ -205,7 +305,7 @@ class GDELTServiceTests(TestCase):
         success = MagicMock(status_code=200, headers={}, text="{}")
         success.json.return_value = {}
         mock_get.side_effect = [limited, success]
-        self.assertEqual(_request_gdelt({"query": "test"}), {})
+        self.assertEqual(_request_gdelt({"query": "test"}, retries=1), {})
         mock_sleep.assert_called_once_with(2.0)
 
     @patch("intelligence.services.gdelt.time.sleep")
@@ -213,9 +313,16 @@ class GDELTServiceTests(TestCase):
     def test_rate_limit_retry_exhausted(self, mock_get, mock_sleep):
         mock_get.return_value = MagicMock(status_code=429, headers={"Retry-After": "1"}, text="rate limited")
         with self.assertRaises(GDELTRateLimitError):
-            _request_gdelt({"query": "test"})
+            _request_gdelt({"query": "test"}, retries=1)
         self.assertEqual(mock_get.call_count, 2)
         self.assertEqual(mock_sleep.call_count, 1)
+
+    @patch("requests.get")
+    def test_default_rate_limit_behavior_makes_one_request(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=429, headers={}, text="rate limited")
+        with self.assertRaises(GDELTRateLimitError):
+            _request_gdelt({"query": "test"})
+        self.assertEqual(mock_get.call_count, 1)
 
     def test_duplicate_article_prevention(self):
         sample_articles = [
@@ -418,6 +525,42 @@ class APIStateTests(TestCase):
 
     @patch("intelligence.services.analysis.fetch_all_country_indicators", return_value={})
     @patch("intelligence.services.analysis.get_recent_bilateral_articles", return_value=[])
+    def test_fresh_cache_avoids_live_gdelt_request(self, mock_articles, mock_indicators):
+        india = Country.objects.get(iso_code="IND")
+        china = Country.objects.get(iso_code="CHN")
+        Article.objects.create(
+            country_a=india,
+            country_b=china,
+            title="India and China hold cached diplomatic talks",
+            url="https://example.com/fresh-cache",
+            source_domain="example.com",
+            published_at=timezone.now() - timedelta(hours=1),
+        )
+        result = run_country_pair_analysis(india, china)
+        mock_articles.assert_not_called()
+        self.assertEqual(result["metadata"]["source"], "cached")
+        self.assertEqual(result["metadata"]["gdelt_status"], "success_with_data")
+
+    @patch("intelligence.services.analysis.fetch_all_country_indicators", return_value={})
+    @patch("intelligence.services.analysis.get_recent_bilateral_articles", return_value=[])
+    def test_stale_cache_triggers_one_live_request(self, mock_articles, mock_indicators):
+        india = Country.objects.get(iso_code="IND")
+        china = Country.objects.get(iso_code="CHN")
+        article = Article.objects.create(
+            country_a=india,
+            country_b=china,
+            title="India and China hold cached diplomatic talks",
+            url="https://example.com/stale-cache",
+            source_domain="example.com",
+            published_at=timezone.now() - timedelta(hours=1),
+        )
+        Article.objects.filter(pk=article.pk).update(fetched_at=timezone.now() - timedelta(hours=1))
+        result = run_country_pair_analysis(india, china)
+        mock_articles.assert_called_once_with(india, china, max_records=250)
+        self.assertEqual(result["metadata"]["gdelt_status"], "success_no_data")
+
+    @patch("intelligence.services.analysis.fetch_all_country_indicators", return_value={})
+    @patch("intelligence.services.analysis.get_recent_bilateral_articles", return_value=[])
     def test_successful_zero_result_is_explicit(self, mock_articles, mock_indicators):
         india = Country.objects.get(iso_code="IND")
         china = Country.objects.get(iso_code="CHN")
@@ -425,6 +568,71 @@ class APIStateTests(TestCase):
         self.assertEqual(result["metadata"]["gdelt_status"], "success_no_data")
         self.assertEqual(result["metadata"]["source"], "live")
         self.assertEqual(result["articles"], [])
+        self.assertIsNone(result["narrative_shift"])
+
+
+class SeededNewsModeTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        call_command("seed_countries")
+        call_command("seed_articles")
+
+    @override_settings(NEWS_DATA_MODE="seeded")
+    @patch("intelligence.services.analysis.fetch_all_country_indicators", return_value={})
+    @patch("intelligence.services.analysis.get_recent_bilateral_articles")
+    def test_seeded_mode_does_not_call_gdelt(self, mock_articles, mock_indicators):
+        india = Country.objects.get(iso_code="IND")
+        china = Country.objects.get(iso_code="CHN")
+        result = run_country_pair_analysis(india, china, force_refresh=True)
+        mock_articles.assert_not_called()
+        self.assertEqual(result["metadata"]["source"], "seeded")
+        self.assertEqual(result["metadata"]["gdelt_status"], "success_with_data")
+
+    @override_settings(NEWS_DATA_MODE="seeded")
+    @patch("intelligence.services.analysis.fetch_all_country_indicators", return_value={})
+    def test_seeded_mode_returns_seeded_articles_to_analysis_layer(self, mock_indicators):
+        india = Country.objects.get(iso_code="IND")
+        china = Country.objects.get(iso_code="CHN")
+        forward = run_country_pair_analysis(india, china)
+        reverse = run_country_pair_analysis(china, india)
+        self.assertEqual(forward["metadata"]["article_count"], 2)
+        self.assertEqual(reverse["metadata"]["article_count"], 2)
+        self.assertEqual(
+            {article["url"] for article in forward["articles"]},
+            {article["url"] for article in reverse["articles"]},
+        )
+
+    @override_settings(NEWS_DATA_MODE="seeded")
+    @patch("intelligence.services.analysis.fetch_all_country_indicators", return_value={})
+    def test_news_activity_is_calculated_from_seeded_records(self, mock_indicators):
+        india = Country.objects.get(iso_code="IND")
+        china = Country.objects.get(iso_code="CHN")
+        result = run_country_pair_analysis(india, china)
+        self.assertIsNotNone(result["news_activity"])
+        self.assertEqual(sum(result["news_activity"]["daily_article_count"]), 2.0)
+        self.assertEqual(result["news_activity"]["peak_article_count"], 1.0)
+
+    @override_settings(NEWS_DATA_MODE="seeded")
+    @patch("intelligence.services.analysis.fetch_all_country_indicators", return_value={})
+    def test_narrative_shift_is_calculated_from_seeded_records(self, mock_indicators):
+        india = Country.objects.get(iso_code="IND")
+        china = Country.objects.get(iso_code="CHN")
+        result = run_country_pair_analysis(india, china)
+        self.assertIsNotNone(result["narrative_shift"])
+        self.assertEqual(result["narrative_shift"]["earlier_article_count"], 1)
+        self.assertEqual(result["narrative_shift"]["later_article_count"], 1)
+
+    @override_settings(NEWS_DATA_MODE="seeded")
+    @patch("intelligence.services.analysis.fetch_all_country_indicators", return_value={})
+    @patch("intelligence.services.analysis.get_recent_bilateral_articles")
+    def test_uncovered_seeded_pair_returns_no_data_state(self, mock_articles, mock_indicators):
+        germany = Country.objects.get(iso_code="DEU")
+        israel = Country.objects.get(iso_code="ISR")
+        result = run_country_pair_analysis(germany, israel)
+        mock_articles.assert_not_called()
+        self.assertEqual(result["metadata"]["gdelt_status"], "success_no_data")
+        self.assertEqual(result["metadata"]["article_count"], 0)
+        self.assertIsNone(result["news_activity"])
         self.assertIsNone(result["narrative_shift"])
 
 

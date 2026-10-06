@@ -47,6 +47,7 @@ class Command(BaseCommand):
 
         act = res["news_activity"]
         self.stdout.write("\nAnalysis Window: Last 7 Days")
+        self.stdout.write(f"News source: {res['metadata'].get('source', 'live')}")
         if not res["metadata"].get("geopolitical_data_available", True):
             self.stdout.write(self.style.WARNING("Geopolitical data temporarily unavailable; no activity or narrative metrics calculated."))
         self.stdout.write(f"\nRecent Developments: {len(res['articles'])} articles shown")
