@@ -1,23 +1,18 @@
-"""Management command to run and display the complete geopolitical analysis for a country pair."""
+"""Management command to run and display the complete analysis for a country pair."""
 
 from django.core.management.base import BaseCommand, CommandError
 
+from intelligence.analysis import run_country_pair_analysis
 from intelligence.models import Country
-from intelligence.services.analysis import run_country_pair_analysis
-from intelligence.services.worldbank import COUNTRY_INDICATORS
+from intelligence.seeds import CANONICAL_INDICATORS, SNAPSHOT_LABEL
 
 
 class Command(BaseCommand):
-    help = "Analyze the geopolitical and economic relationship between two countries."
+    help = "Analyze a country pair from the local historical snapshot."
 
     def add_arguments(self, parser):
         parser.add_argument("iso_a", type=str, help="ISO code of first country (e.g. IND)")
         parser.add_argument("iso_b", type=str, help="ISO code of second country (e.g. CHN)")
-        parser.add_argument(
-            "--force",
-            action="store_true",
-            help="Bypass cache and force fresh data retrieval.",
-        )
 
     def handle(self, *args, **options):
         iso_a = options["iso_a"].upper().strip()
@@ -36,7 +31,7 @@ class Command(BaseCommand):
             self.style.NOTICE(f"Running analysis for {country_a.name} × {country_b.name}...")
         )
 
-        res = run_country_pair_analysis(country_a, country_b, force_refresh=options["force"])
+        res = run_country_pair_analysis(country_a, country_b)
 
         # Display concise, human-readable summary
         self.stdout.write("")
@@ -46,13 +41,12 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("=" * 48))
 
         act = res["news_activity"]
-        self.stdout.write("\nAnalysis Window: Last 7 Days")
-        self.stdout.write(f"News source: {res['metadata'].get('source', 'live')}")
-        if not res["metadata"].get("geopolitical_data_available", True):
-            self.stdout.write(self.style.WARNING("Geopolitical data temporarily unavailable; no activity or narrative metrics calculated."))
+        self.stdout.write(f"\nAnalysis Window: {SNAPSHOT_LABEL}")
+        self.stdout.write("News source: local (no external API)")
+
         self.stdout.write(f"\nRecent Developments: {len(res['articles'])} articles shown")
-        if res["metadata"].get("gdelt_status") == "success_no_data":
-            self.stdout.write("No recent bilateral coverage found.")
+        if res["metadata"].get("data_status") == "success_no_data":
+            self.stdout.write("No bilateral coverage found for this pair in the snapshot.")
         elif act is not None:
             self.stdout.write("\nNews Activity")
             self.stdout.write(f"Average articles/day: {act['average_articles_per_day']:.1f}")
@@ -69,9 +63,9 @@ class Command(BaseCommand):
         ind_b = res["indicators"].get(iso_b, {})
         valid_a = sum(1 for v in ind_a.values() if v.get("value") is not None)
         valid_b = sum(1 for v in ind_b.values() if v.get("value") is not None)
-        total_expected = len(COUNTRY_INDICATORS)
+        total_expected = len(CANONICAL_INDICATORS)
 
-        self.stdout.write(f"\nCountry Indicators")
+        self.stdout.write("\nCountry Indicators")
         self.stdout.write(f"  {valid_a} / {total_expected} {country_a.name}")
         self.stdout.write(f"  {valid_b} / {total_expected} {country_b.name}")
 

@@ -87,5 +87,3 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
-NEWS_DATA_MODE = os.getenv("NEWS_DATA_MODE", "live").strip().lower()

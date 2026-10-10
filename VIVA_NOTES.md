@@ -2,11 +2,11 @@
 
 ## What is Between Nations?
 
-It is a Django application that compares two countries using seven days of geopolitical news coverage and the latest World Bank indicators.
+It is a fully local Django application that compares two countries using a curated 12-day historical snapshot of geopolitical news coverage and locally stored World Bank indicator values.
 
 ## Why this problem?
 
-Country relationships generate large amounts of information. This project presents recent coverage and national context in a compact, explainable form.
+Country relationships generate large amounts of information. This project presents curated historical coverage and national context in a compact, explainable form.
 
 ## Why Django and MySQL?
 
@@ -16,46 +16,50 @@ Django provides forms, views, templates, validation, and database integration in
 
 Pandas organizes article and category data. NumPy calculates simple daily averages and peak values. Matplotlib creates the activity, narrative, and indicator charts in Python.
 
-## Why GDELT and World Bank?
+## Why is the application fully local?
 
-GDELT provides current international news coverage. World Bank provides official country-level economic and national indicators.
+The dashboard analyzes a fixed curated dataset rather than live feeds. Curated articles come from `seed_articles.csv` (93 verified articles, 41 covered pairs) and country indicators from `country_indicators.csv` (10 indicators per active country), both loaded into MySQL by one `seed_data` command. No external API is ever called, so results are reproducible and the dashboard works offline as long as MySQL runs. `requests` is not a dependency.
 
-## Why only 20 countries?
+## Why only 10 countries?
 
-A fixed universe keeps the academic project focused, validation simple, and comparisons consistent.
+A fixed universe keeps the academic project focused, validation simple, and comparisons consistent. Indicators in `country_indicators.csv` cover all 10 active countries 10/10.
 
-## Why only seven days?
+## Why a fixed 12-day snapshot instead of seven days?
 
-Seven days keeps the geopolitical view recent and understandable. It measures current media coverage, not a long-term historical baseline.
+The dashboard analyzes one fixed historical window: 28 September through 9 October 2026 (12 days inclusive). Fixing the window makes every analysis reproducible and lets News Activity report all 12 calendar days with a consistent denominator of 12. It measures curated historical coverage, not rolling live data.
 
 ## What is News Activity?
 
-It is the number of bilateral articles per day during the last seven days, including the average, busiest day, and peak article count.
+It is the number of bilateral articles per day across the 12 snapshot days, including the average (total / 12, zero days included), busiest day, and peak article count.
 
 ## What is Narrative Shift?
 
-It measures how the categories emphasized by media coverage differ between the first three and last four days.
+It measures how the categories emphasized by media coverage differ between the first six days (28 September - 3 October) and the last six days (4 October - 9 October) of the snapshot.
 
 ## How is Narrative Shift calculated?
 
 Articles are classified into six categories. Pandas calculates each period's category shares, and the score uses total variation distance: half the sum of absolute share differences, expressed from 0 to 100.
 
-## Why first three days versus last four days?
+## Why a six-day/six-day split?
 
-The split gives a short earlier period and a slightly larger later period while covering the full seven-day window.
+The snapshot has 12 calendar days, so the earlier and later periods are equal-sized six-day halves. The UI labels them "FIRST 6 DAYS" and "LAST 6 DAYS".
 
 ## What is the database structure?
 
-Country stores the fixed universe. Article stores bilateral news. CountryIndicator stores World Bank observations and years. AnalysisRun stores the structured result of a comparison.
+Country stores the fixed universe. Article stores bilateral news. CountryIndicator stores locally imported indicator observations and years. AnalysisRun stores the structured result of a comparison.
 
-## How are API failures handled?
+## How does the analysis stay honest about coverage?
 
-Requests use timeouts and typed errors. Stored articles and indicators are reused when available; otherwise the application shows empty or unavailable states rather than tracebacks.
+Only stored articles whose URLs appear in `seed_articles.csv` (the canonical allowlist) and whose pair matches are analyzed. Pairs with no verified articles (CHN-ISR, IND-IRN, ISR-JPN, ISR-RUS) are reported as honest no-data states, never filled with placeholder rows. Missing indicator values render as `N/A`, never as zero.
+
+## How are failures handled?
+
+There are no external requests to fail. Database errors are caught and shown as a clean "analysis unavailable" state rather than a traceback.
 
 ## Limitations
 
-GDELT is a media source, article classification is rule-based, World Bank indicators may have different reporting years, and the fixed country list is not exhaustive.
+The curated snapshot covers 41 of the 45 possible unordered pairs, article classification is rule-based, indicator values may have different reporting years, and the fixed country list is not exhaustive.
 
 ## Why is this not an AI prediction system?
 
-It uses deterministic keyword classification and descriptive statistics. It does not predict war, conflict, or geopolitical outcomes.
+It uses deterministic keyword classification and descriptive statistics over a fixed historical snapshot. It does not predict war, conflict, or geopolitical outcomes.

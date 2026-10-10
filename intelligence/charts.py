@@ -77,8 +77,8 @@ def generate_narrative_chart(
     y = np.arange(len(categories))
     height = 0.35
 
-    ax.barh(y - height / 2, earlier_shares, height, label="Earlier (3d) Share %", color="#7f8c8d", alpha=0.85)
-    ax.barh(y + height / 2, later_shares, height, label="Later (4d) Share %", color="#2980b9", alpha=0.9)
+    ax.barh(y - height / 2, earlier_shares, height, label="Earlier (6d) Share %", color="#7f8c8d", alpha=0.85)
+    ax.barh(y + height / 2, later_shares, height, label="Later (6d) Share %", color="#2980b9", alpha=0.9)
 
     ax.set_yticks(y)
     ax.set_yticklabels(categories, fontsize=9)

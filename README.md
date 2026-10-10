@@ -1,17 +1,29 @@
 # Between Nations
 
-Between Nations is a small Django application for comparing two countries through recent bilateral news coverage and the latest available national indicators. It is designed as an explainable university semester project: the application describes recent media coverage and country context; it does not predict geopolitical events.
+Between Nations is a small, fully local Django application for comparing two countries through curated historical bilateral news coverage and locally stored national indicators. It is designed as an explainable university semester project: the application analyzes a fixed 12-day historical snapshot and describes media coverage and country context; it does not predict geopolitical events.
+
+The application never calls an external API. Curated articles and country indicators are loaded from CSV files at the project root into MySQL, and every page reads only from the local database.
 
 ## What the application does
 
 The user selects two countries from the fixed active universe and receives four sections:
 
-1. **Recent Developments** - the most recent relevant bilateral articles retrieved for the selected pair.
-2. **News Activity** - daily counts, average articles per day, busiest day, and peak article count for relevant articles in the seven-day window.
-3. **Narrative Shift** - a deterministic comparison of article categories in the first three days versus the last four days.
-4. **Country Comparison** - the latest available World Bank observations for ten national indicators.
+1. **Recent Developments** - the curated bilateral articles for the selected pair within the historical snapshot.
+2. **News Activity** - daily counts, average articles per day, busiest day, and peak article count across the 12 calendar days of the snapshot.
+3. **Narrative Shift** - a deterministic comparison of article categories in the first six days versus the last six days of the snapshot.
+4. **Country Comparison** - the locally exported World Bank observation values for ten national indicators.
 
-The news sections use one article dataset per analysis. In live mode, that dataset comes from one GDELT DOC 2.0 ArticleList request per uncached pair. In seeded/demo mode, it comes from verified local historical seed articles stored in MySQL. The same dataset powers Recent Developments, News Activity, and Narrative Shift. There is no TimelineVol request and no 30-day or 37-day geopolitical baseline.
+One article dataset drives Recent Developments, News Activity, and Narrative Shift. The dataset is the curated historical snapshot, not live coverage.
+
+## Historical snapshot window
+
+The dashboard analyzes one fixed snapshot:
+
+- Entire snapshot: **28 September 2026 through 9 October 2026 (12 days, inclusive)**.
+- Earlier period: 28 September - 3 October (first 6 days).
+- Later period: 4 October - 9 October (last 6 days).
+
+Because the window is fixed, News Activity always covers the same 12 calendar days and its average uses a denominator of 12 (zero-volume days stay in the average). The UI shows the label "Historical snapshot: 28 September–9 October 2026 (12 days)" wherever the old rolling seven-day window was described. The dashboard is a historical snapshot, never live or rolling data.
 
 ## Supported countries
 
@@ -36,42 +48,40 @@ The seed command deactivates legacy country rows instead of deleting them, so hi
 
 - Python and Django
 - MySQL with Django ORM
-- GDELT DOC 2.0 ArticleList API
-- World Bank Indicators API
 - Pandas for date grouping and narrative distributions
 - NumPy for News Activity summary calculations
 - Matplotlib for in-memory PNG charts
 
+There are no external API dependencies (`requests` is not used anywhere in the project).
+
 ## Data sources and interpretation
 
-### GDELT news
+### Curated historical dataset
 
-GDELT is queried in live mode with a seven-day rolling `timespan=7d`, `mode=ArtList`, `maxrecords=250`, and newest-first sorting. Country aliases and a small set of geopolitical relationship terms keep the query focused. Returned titles are checked again by a deterministic bilateral relevance filter before storage.
+The file `seed_articles.csv` contains 93 verified, sourced historical articles referenced by URL. It covers the fixed snapshot window (28 September through 9 October 2026) and forms the canonical URL allowlist for the analysis: only stored articles whose URL is in this file and whose pair is the selected one are ever analyzed. Nothing else in the `Article` table is used.
 
-The dataset is recent media coverage, not an exhaustive census of every article. GDELT coverage, publisher indexing, query ranking, and API availability affect the result. The application does not claim that missing coverage means that no geopolitical activity occurred.
-
-### Seeded historical news
-
-The file `between_nations_seed_articles_v1.csv` contains verified sourced historical articles for the local demo window around 2026-09-28 through 2026-10-06. It intentionally covers only pairs where verified articles were found; the project does not create placeholder rows for uncovered pairs.
+The dataset intentionally covers only pairs where verified articles were found (41 of the 45 possible unordered pairs). The project does not create placeholder rows for uncovered pairs. Full article URLs are kept in the dataset and displayed on the dashboard.
 
 Import it with:
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py seed_articles
+.\.venv\Scripts\python.exe manage.py seed_data
 ```
 
-The importer validates active country codes, unordered pair membership, non-empty URL/title fields, publication dates, tone, and category values before inserting. It stores articles through the existing `Article` model and is idempotent by URL within the unordered country pair. Some CSV `pair_key` values are reversed relative to strict alphabetical order; the importer accepts them only when they contain the same unordered country pair, then stores the relationship using the project's canonical ISO ordering.
+### Locally exported indicators
+
+The file `country_indicators.csv` contains the country indicators exported from the local database (100 rows: 10 indicators per active country). Importing it with `seed_data` uses `update_or_create` and never fabricates values: genuinely missing observations stay missing and are rendered as `N/A`, never as zero.
 
 ### News Activity
 
-News Activity groups the publication timestamps of relevant stored articles by calendar day within the seven-day window. It reports:
+News Activity groups the publication timestamps of the curated articles by calendar day across the 12-day snapshot. It reports:
 
-- daily article count
-- average articles per day
+- daily article count (all 12 days, including zero days)
+- average articles per day (total divided by 12)
 - busiest day
 - peak article count
 
-It describes relevant bilateral articles retrieved by this application. It is not a global media-volume measurement and is not a conflict or event predictor.
+It describes curated bilateral coverage in this dataset. It is not a global media-volume measurement and is not a conflict or event predictor.
 
 ### Narrative Shift
 
@@ -84,11 +94,11 @@ Articles are classified deterministically into:
 - Sanctions / Restrictions
 - Technology / Strategy
 
-The first three days are compared with the last four days using Pandas category distributions and total variation distance. The result reports a score, dominant later category, largest positive shift, and a media-coverage interpretation. It does not establish geopolitical causality. If there are too few valid articles, the result is marked insufficient rather than shown as a fabricated zero.
+The first six days (28 September - 3 October) are compared with the last six days (4 October - 9 October) using Pandas category distributions and total variation distance. The result reports a score, dominant later category, largest positive shift, and a media-coverage interpretation. It does not establish geopolitical causality. If there are too few valid articles, the result is marked insufficient rather than shown as a fabricated zero.
 
-### World Bank indicators
+### Country indicators
 
-The country comparison uses the latest available non-empty observation for these ten centralized indicators:
+The country comparison shows the locally stored observations for these ten canonical indicators:
 
 1. GDP
 2. GDP Growth Rate
@@ -101,68 +111,47 @@ The country comparison uses the latest available non-empty observation for these
 9. Military Expenditure
 10. Exports of Goods and Services
 
-World Bank values are country-level observations and are separate from the seven-day GDELT analysis. They are not necessarily real-time or from the same reporting year. Missing values remain `N/A`; they are not converted to zero.
+Indicator values are country-level observations, separate from the media snapshot. They are not necessarily real-time or from the same reporting year. Missing values remain `N/A`; they are not converted to zero.
 
 ## Architecture
 
-The live comparison flow is:
+The comparison flow is entirely local:
 
-`Django form -> comparison view -> analysis service -> one GDELT ArticleList dataset -> Article storage -> local activity/narrative calculations -> World Bank retrieval -> AnalysisRun -> template and charts`
-
-The seeded/demo comparison flow is:
-
-`Django form -> comparison view -> analysis service -> seeded Article rows from MySQL -> local activity/narrative calculations -> World Bank retrieval -> AnalysisRun -> template and charts`
+`Django form -> comparison view -> analysis (local Article rows via seed URL allowlist within the 12-day window) -> local activity/narrative calculations -> local CountryIndicator rows -> AnalysisRun -> template and charts`
 
 Important files:
 
 - `config/settings.py` - Django and MySQL configuration.
 - `intelligence/models.py` - countries, articles, indicators, and analysis runs.
 - `intelligence/forms.py` - active-country selection and duplicate validation.
-- `intelligence/management/commands/seed_countries.py` - final ten-country seed and legacy deactivation.
-- `intelligence/management/commands/seed_articles.py` - idempotent CSV importer for verified historical demo articles.
-- `intelligence/services/gdelt.py` - ArticleList query, parsing, aliases, filtering, rate-limit errors, and article storage.
-- `intelligence/services/analysis.py` - seven-day orchestration, cache selection, activity, and narrative calculations.
-- `intelligence/services/pairs.py` - deterministic unordered pair-key and pair-query helpers.
-- `intelligence/services/scoring.py` - NumPy News Activity summaries.
-- `intelligence/services/narrative.py` - deterministic classification and shift calculation.
-- `intelligence/services/worldbank.py` - centralized indicators and latest-value caching.
-- `intelligence/services/charts.py` - Matplotlib chart generation.
+- `intelligence/management/commands/seed_data.py` - one idempotent command that seeds the 10 country universe, imports `seed_articles.csv`, and imports `country_indicators.csv`. Running it twice creates no duplicates and deletes nothing.
+- `intelligence/management/commands/analyze_pair.py` - manual pair analysis from the local snapshot.
+- `intelligence/analysis.py` - the complete local analysis pipeline in one file: article classification, NumPy News Activity summaries with Pandas date grouping, the earlier/later 6-6 day split, Narrative Shift via total variation distance, and the snapshot orchestration function.
+- `intelligence/pairs.py` - deterministic unordered pair-key and pair-query helpers.
+- `intelligence/seeds.py` - single source of truth for the fixed snapshot window, the article-URL allowlist, the canonical indicator codes, and both CSV loaders.
+- `intelligence/charts.py` - Matplotlib chart generation.
 - `intelligence/views.py` and `intelligence/templates/intelligence/` - existing page flow and presentation.
-- `intelligence/tests.py` - mocked service, API-state, cache, country-universe, and rendering tests.
+- `intelligence/tests.py` - local data-driven tests, snapshot-behavior tests, and rendering tests.
 
 The main database models are:
 
 - `Country` - country name, ISO code, and active-selection flag.
 - `Article` - bilateral article title, URL, source domain, publication time, tone, category, and fetch time.
-- `CountryIndicator` - World Bank observation, source year, and fetch time.
+- `CountryIndicator` - locally stored indicator observation and source year.
 - `AnalysisRun` - selected pair and structured JSON result. Existing nullable analysis score fields remain for schema compatibility.
 
-## GDELT request, cache, and failure behavior
+## Local-only operation
 
-For an uncached pair, the analysis makes one primary ArticleList request. Recent Developments, News Activity, and Narrative Shift reuse the resulting stored article rows; no separate request is made for any metric.
+Because there is no live mode and no API cache, every comparison reads the curated snapshot from MySQL. Article coverage depends on the curated dataset: stored rows whose URLs are not in `seed_articles.csv` are ignored so older experimental rows cannot contaminate results. If a pair is not covered by the snapshot, the analysis returns an explicit honest no-data state:
 
-Relevant bilateral article cache entries are fresh for 15 minutes and must also have publication timestamps inside the current seven-day window. Fresh cache data is used without a live GDELT request. A stale cache triggers one controlled live ArticleList request. If that request fails, valid recent cached articles may be used as a fallback. If no valid cache exists, the result is unavailable.
+- `success_with_data` - curated articles exist for the pair.
+- `success_no_data` - the snapshot has no curated articles for the pair; the UI shows "No curated bilateral coverage for this pair in the snapshot."
 
-The result distinguishes three states:
-
-- `success_with_data` - GDELT or valid cache supplied relevant articles.
-- `success_no_data` - GDELT responded successfully but no relevant articles were found; the UI says “No recent bilateral coverage found.”
-- `unavailable` - timeout, connection failure, rate limit, malformed response, or another API failure; activity and narrative metrics are not fabricated.
-
-The default live request does not immediately retry HTTP 429 responses. The lower-level request helper supports an explicitly bounded retry for mocked/service-level tests and honors numeric or HTTP-date `Retry-After` values with a maximum delay. This keeps normal country-pair analysis conservative and avoids request bursts. No Celery, Redis, worker, or external queue is used.
-
-## News data modes
-
-Set `NEWS_DATA_MODE` in `.env` or the shell:
-
-- `NEWS_DATA_MODE=seeded` uses only locally stored seed CSV article URLs for the news portion and does not call GDELT. This is the safest local demo/offline mode.
-- `NEWS_DATA_MODE=live` preserves the current GDELT cache, request, timeout, unavailable-state, and relevance-filtering behavior.
-
-World Bank indicator retrieval remains unchanged in both modes.
+No external request is made at any point, so the dashboard works with the network unavailable as long as MySQL is running.
 
 ## Setup
 
-Create and activate a virtual environment, install dependencies, configure `.env`, migrate, and seed the active country universe:
+Create and activate a virtual environment, install dependencies, configure `.env`, migrate, and seed the local dataset:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -170,8 +159,7 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env
 python manage.py migrate
-python manage.py seed_countries
-python manage.py seed_articles
+python manage.py seed_data
 python manage.py check
 ```
 
@@ -181,25 +169,19 @@ Create the MySQL database before migrating:
 CREATE DATABASE between_nations CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-Configure `SECRET_KEY`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, and optionally `NEWS_DATA_MODE` in `.env`.
+Configure `SECRET_KEY`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, and `DB_PORT` in `.env`. No news-data mode or API key is needed.
 
-Start seeded/demo mode with:
-
-```powershell
-$env:NEWS_DATA_MODE="seeded"; .\.venv\Scripts\python.exe manage.py runserver
-```
-
-Start live mode with:
+Start the server with:
 
 ```powershell
-$env:NEWS_DATA_MODE="live"; .\.venv\Scripts\python.exe manage.py runserver
+.\.venv\Scripts\python.exe manage.py runserver
 ```
 
 Then open `http://127.0.0.1:8000/`.
 
 ## Testing and manual analysis
 
-External APIs are mocked in unit tests. Run:
+No external APIs are called, so tests are fully local and data-driven from the same CSVs the dashboard uses. Run:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py check
@@ -209,13 +191,13 @@ External APIs are mocked in unit tests. Run:
 For a manual pair analysis:
 
 ```powershell
-$env:NEWS_DATA_MODE="seeded"; .\.venv\Scripts\python.exe manage.py analyze_pair IND CHN
+.\.venv\Scripts\python.exe manage.py analyze_pair IND CHN
 ```
 
-Seeded manual runs use MySQL seed rows for articles and still use the existing World Bank logic for country indicators. Live manual runs use configured external endpoints, persist usable article and indicator data in MySQL, reuse fresh cache rows, and show explicit no-data or unavailable states when appropriate. Avoid repeatedly analyzing many uncached pairs in live mode because GDELT applies rate limits.
+Manual runs read the curated snapshot and local indicator rows from MySQL. Pairs with no verified articles (for example CHN-ISR) are reported honestly as no-data rather than filled in.
 
 ## Known limitations and future ideas
 
-The fixed country universe is intentionally small. GDELT results depend on recent indexing and publisher coverage, and deterministic title keywords can misclassify ambiguous headlines or miss coverage whose titles omit country aliases. World Bank indicators can have different source years and are not real-time. External API outages and rate limits can make a pair temporarily unavailable.
+The fixed country universe is intentionally small. The curated dataset covers 41 of the 45 possible unordered pairs; the 4 uncovered pairs are reported as no-data. Deterministic title keywords can misclassify ambiguous headlines or miss coverage whose titles omit country aliases (the curated dataset predates this via verified categories). Indicator values can have different source years and are not real-time.
 
-Future ideas, not implemented features, include a larger carefully maintained country universe, richer article entity extraction, and more comprehensive source-quality diagnostics. The current project intentionally remains a local Django semester application without prediction, background workers, or additional product sections.
+Future ideas, not implemented features, include a larger carefully maintained country universe, richer article entity extraction, and more comprehensive source-quality diagnostics. The current project intentionally remains a local Django semester application without prediction, background workers, external APIs, or additional product sections.
