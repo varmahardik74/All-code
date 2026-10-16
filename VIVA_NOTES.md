@@ -18,7 +18,7 @@ Pandas organizes article and category data. NumPy calculates simple daily averag
 
 ## Why is the application fully local?
 
-The dashboard analyzes a fixed curated dataset rather than live feeds. Curated articles come from `seed_articles.csv` (108 sourced articles, 41 covered pairs) and country indicators from `country_indicators.csv` (10 indicators per active country), both loaded into MySQL by one `seed_data` command. No external API is ever called, so results are reproducible and the dashboard works offline as long as MySQL runs. `requests` is not a dependency.
+The dashboard analyzes a fixed curated dataset rather than live feeds. Curated articles come from `seed_articles.csv` (109 sourced articles, 41 covered pairs) and country indicators from `country_indicators.csv` (10 indicators per active country), both loaded into MySQL by one `seed_data` command. No external API is ever called, so results are reproducible and the dashboard works offline as long as MySQL runs. `requests` is not a dependency.
 
 ## Why only 10 countries?
 
@@ -26,11 +26,11 @@ A fixed universe keeps the academic project focused, validation simple, and comp
 
 ## Why a fixed 19-day snapshot instead of seven days?
 
-The dashboard analyzes one fixed historical window: 28 September through 16 October 2026 (19 days inclusive). Fixing the window makes every analysis reproducible and lets News Activity report all 19 calendar days with a consistent denominator of 12. It measures curated historical coverage, not rolling live data.
+The dashboard analyzes one fixed historical window: 28 September through 16 October 2026 (19 days inclusive). Fixing the window makes every analysis reproducible and lets News Activity report all 19 calendar days with a consistent denominator of 19. It measures curated historical coverage, not rolling live data.
 
 ## What is News Activity?
 
-It is the number of bilateral articles per day across the 12 snapshot days, including the average (total / 19, zero days included), busiest day, and peak article count.
+It is the number of bilateral articles per day across the 19 snapshot days, including the average (total / 19, zero days included), busiest day, and peak article count.
 
 ## What is Narrative Shift?
 
