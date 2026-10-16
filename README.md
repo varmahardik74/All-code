@@ -1,6 +1,6 @@
 # Between Nations
 
-Between Nations is a small, fully local Django application for comparing two countries through curated historical bilateral news coverage and locally stored national indicators. It is designed as an explainable university semester project: the application analyzes a fixed 12-day historical snapshot and describes media coverage and country context; it does not predict geopolitical events.
+Between Nations is a small, fully local Django application for comparing two countries through curated historical bilateral news coverage and locally stored national indicators. It is designed as an explainable university semester project: the application analyzes a fixed 19-day historical snapshot and describes media coverage and country context; it does not predict geopolitical events.
 
 The application never calls an external API. Curated articles and country indicators are loaded from CSV files at the project root into MySQL, and every page reads only from the local database.
 
@@ -9,8 +9,8 @@ The application never calls an external API. Curated articles and country indica
 The user selects two countries from the fixed active universe and receives four sections:
 
 1. **Recent Developments** - the curated bilateral articles for the selected pair within the historical snapshot.
-2. **News Activity** - daily counts, average articles per day, busiest day, and peak article count across the 12 calendar days of the snapshot.
-3. **Narrative Shift** - a deterministic comparison of article categories in the first six days versus the last six days of the snapshot.
+2. **News Activity** - daily counts, average articles per day, busiest day, and peak article count across the 19 calendar days of the snapshot.
+3. **Narrative Shift** - a deterministic comparison of article categories in the first nine days versus the last ten days of the snapshot.
 4. **Country Comparison** - the locally exported World Bank observation values for ten national indicators.
 
 One article dataset drives Recent Developments, News Activity, and Narrative Shift. The dataset is the curated historical snapshot, not live coverage.
@@ -19,11 +19,11 @@ One article dataset drives Recent Developments, News Activity, and Narrative Shi
 
 The dashboard analyzes one fixed snapshot:
 
-- Entire snapshot: **28 September 2026 through 9 October 2026 (12 days, inclusive)**.
-- Earlier period: 28 September - 3 October (first 6 days).
-- Later period: 4 October - 9 October (last 6 days).
+- Entire snapshot: **28 September 2026 through 16 October 2026 (19 days, inclusive)**.
+- Earlier period: 28 September - 6 October (first 9 days).
+- Later period: 7 October - 16 October (last 10 days).
 
-Because the window is fixed, News Activity always covers the same 12 calendar days and its average uses a denominator of 12 (zero-volume days stay in the average). The UI shows the label "Historical snapshot: 28 September–9 October 2026 (12 days)" wherever the old rolling seven-day window was described. The dashboard is a historical snapshot, never live or rolling data.
+Because the window is fixed, News Activity always covers the same 19 calendar days and its average uses a denominator of 19 (zero-volume days stay in the average). The UI shows the label "Historical snapshot: 28 September–16 October 2026 (19 days)" wherever the old rolling seven-day window was described. The dashboard is a historical snapshot, never live or rolling data.
 
 ## Supported countries
 
@@ -58,9 +58,9 @@ There are no external API dependencies (`requests` is not used anywhere in the p
 
 ### Curated historical dataset
 
-The file `seed_articles.csv` contains 93 verified, sourced historical articles referenced by URL. It covers the fixed snapshot window (28 September through 9 October 2026) and forms the canonical URL allowlist for the analysis: only stored articles whose URL is in this file and whose pair is the selected one are ever analyzed. Nothing else in the `Article` table is used.
+The file `seed_articles.csv` contains 109 curated, sourced historical articles referenced by URL. Sixteen additional records published from 10–16 October 2026 have been appended, while the original 93 rows remain unchanged. The file covers the fixed snapshot window (28 September through 16 October 2026) and forms the canonical URL allowlist for analysis: only stored articles whose URL is in this file and whose pair is selected are analyzed. Nothing else in the `Article` table is used.
 
-The dataset intentionally covers only pairs where verified articles were found (41 of the 45 possible unordered pairs). The project does not create placeholder rows for uncovered pairs. Full article URLs are kept in the dataset and displayed on the dashboard.
+The dataset covers 41 of the 45 possible unordered pairs. The project does not create placeholder rows for uncovered pairs. Full article URLs and source notes are kept in the dataset and displayed on the dashboard.
 
 Import it with:
 
@@ -70,14 +70,14 @@ Import it with:
 
 ### Locally exported indicators
 
-The file `country_indicators.csv` contains the country indicators exported from the local database (100 rows: 10 indicators per active country). Importing it with `seed_data` uses `update_or_create` and never fabricates values: genuinely missing observations stay missing and are rendered as `N/A`, never as zero.
+The file `country_indicators.csv` contains the country indicators exported from the local database (100 rows: 10 indicators per active country). Importing it with `seed_data` uses `update_or_create` and never fabricates values. The CSV is authoritative for active-country indicator coverage: if a country/indicator code has no usable CSV value, its stale active-country observations are pruned so an old value is not shown as current. All years for still-covered codes and inactive-country records are preserved. Missing observations render as `N/A`, never as zero.
 
 ### News Activity
 
-News Activity groups the publication timestamps of the curated articles by calendar day across the 12-day snapshot. It reports:
+News Activity groups the publication timestamps of the curated articles by calendar day across the 19-day snapshot. It reports:
 
-- daily article count (all 12 days, including zero days)
-- average articles per day (total divided by 12)
+- daily article count (all 19 days, including zero days)
+- average articles per day (total divided by 19)
 - busiest day
 - peak article count
 
@@ -94,7 +94,7 @@ Articles are classified deterministically into:
 - Sanctions / Restrictions
 - Technology / Strategy
 
-The first six days (28 September - 3 October) are compared with the last six days (4 October - 9 October) using Pandas category distributions and total variation distance. The result reports a score, dominant later category, largest positive shift, and a media-coverage interpretation. It does not establish geopolitical causality. If there are too few valid articles, the result is marked insufficient rather than shown as a fabricated zero.
+The first nine days (28 September - 6 October) are compared with the last ten days (7 October - 16 October) using Pandas category distributions and total variation distance. The result reports a score, dominant later category, largest positive shift, and a media-coverage interpretation. If either period has no valid articles for a selected pair, Narrative Shift is marked insufficient and no score is computed. It describes media emphasis and does not establish geopolitical causality.
 
 ### Country indicators
 
@@ -117,7 +117,7 @@ Indicator values are country-level observations, separate from the media snapsho
 
 The comparison flow is entirely local:
 
-`Django form -> comparison view -> analysis (local Article rows via seed URL allowlist within the 12-day window) -> local activity/narrative calculations -> local CountryIndicator rows -> AnalysisRun -> template and charts`
+`Django form -> comparison view -> analysis (local Article rows via seed URL allowlist within the 19-day window) -> local activity/narrative calculations -> local CountryIndicator rows -> AnalysisRun -> template and charts`
 
 Important files:
 

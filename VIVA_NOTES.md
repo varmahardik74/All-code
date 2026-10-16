@@ -2,7 +2,7 @@
 
 ## What is Between Nations?
 
-It is a fully local Django application that compares two countries using a curated 12-day historical snapshot of geopolitical news coverage and locally stored World Bank indicator values.
+It is a fully local Django application that compares two countries using a curated 19-day historical snapshot of geopolitical news coverage and locally stored World Bank indicator values.
 
 ## Why this problem?
 
@@ -18,31 +18,31 @@ Pandas organizes article and category data. NumPy calculates simple daily averag
 
 ## Why is the application fully local?
 
-The dashboard analyzes a fixed curated dataset rather than live feeds. Curated articles come from `seed_articles.csv` (93 verified articles, 41 covered pairs) and country indicators from `country_indicators.csv` (10 indicators per active country), both loaded into MySQL by one `seed_data` command. No external API is ever called, so results are reproducible and the dashboard works offline as long as MySQL runs. `requests` is not a dependency.
+The dashboard analyzes a fixed curated dataset rather than live feeds. Curated articles come from `seed_articles.csv` (109 sourced articles, 41 covered pairs) and country indicators from `country_indicators.csv` (10 indicators per active country), both loaded into MySQL by one `seed_data` command. No external API is ever called, so results are reproducible and the dashboard works offline as long as MySQL runs. `requests` is not a dependency.
 
 ## Why only 10 countries?
 
 A fixed universe keeps the academic project focused, validation simple, and comparisons consistent. Indicators in `country_indicators.csv` cover all 10 active countries 10/10.
 
-## Why a fixed 12-day snapshot instead of seven days?
+## Why a fixed 19-day snapshot instead of seven days?
 
-The dashboard analyzes one fixed historical window: 28 September through 9 October 2026 (12 days inclusive). Fixing the window makes every analysis reproducible and lets News Activity report all 12 calendar days with a consistent denominator of 12. It measures curated historical coverage, not rolling live data.
+The dashboard analyzes one fixed historical window: 28 September through 16 October 2026 (19 days inclusive). Fixing the window makes every analysis reproducible and lets News Activity report all 19 calendar days with a consistent denominator of 19. It measures curated historical coverage, not rolling live data.
 
 ## What is News Activity?
 
-It is the number of bilateral articles per day across the 12 snapshot days, including the average (total / 12, zero days included), busiest day, and peak article count.
+It is the number of bilateral articles per day across the 19 snapshot days, including the average (total / 19, zero days included), busiest day, and peak article count.
 
 ## What is Narrative Shift?
 
-It measures how the categories emphasized by media coverage differ between the first six days (28 September - 3 October) and the last six days (4 October - 9 October) of the snapshot.
+It measures how the categories emphasized by media coverage differ between the first nine days (28 September - 6 October) and the last ten days (7 October - 16 October) of the snapshot.
 
 ## How is Narrative Shift calculated?
 
-Articles are classified into six categories. Pandas calculates each period's category shares, and the score uses total variation distance: half the sum of absolute share differences, expressed from 0 to 100.
+Articles are classified into six categories. Pandas calculates each period's category shares, and the score uses total variation distance: half the sum of absolute share differences, expressed from 0 to 100. If either period has no valid articles, Narrative Shift is unavailable instead of assigning an artificial distribution.
 
-## Why a six-day/six-day split?
+## Why a nine-day/ten-day split?
 
-The snapshot has 12 calendar days, so the earlier and later periods are equal-sized six-day halves. The UI labels them "FIRST 6 DAYS" and "LAST 6 DAYS".
+The snapshot has 19 calendar days, so the earlier and later periods are a nine-day first period and a ten-day second period. The UI labels them "FIRST 6 DAYS" and "LAST 6 DAYS".
 
 ## What is the database structure?
 
@@ -50,7 +50,7 @@ Country stores the fixed universe. Article stores bilateral news. CountryIndicat
 
 ## How does the analysis stay honest about coverage?
 
-Only stored articles whose URLs appear in `seed_articles.csv` (the canonical allowlist) and whose pair matches are analyzed. Pairs with no verified articles (CHN-ISR, IND-IRN, ISR-JPN, ISR-RUS) are reported as honest no-data states, never filled with placeholder rows. Missing indicator values render as `N/A`, never as zero.
+Only stored articles whose URLs appear in `seed_articles.csv` (the canonical allowlist) and whose pair matches are analyzed. Pairs with no curated articles (CHN-ISR, IND-IRN, ISR-JPN, ISR-RUS) are reported as honest no-data states, never filled with placeholder rows. An active country/indicator code absent from the authoritative CSV or containing only blank values has its stale observations pruned. All years for still-covered codes and records for inactive countries are preserved. Missing indicator values render as `N/A`, never as zero.
 
 ## How are failures handled?
 

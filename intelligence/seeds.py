@@ -2,9 +2,9 @@
 
 This module is the single source of truth for:
 
-- The fixed 12-day historical window (28 September - 9 October 2026,
+- The fixed 19-day historical window (28 September - 16 October 2026,
   inclusive). The dashboard analyses this fixed snapshot; it is not a
-  rolling seven-day window.
+  rolling window.
 - The article CSV URL allowlist used by both the importer and the analysis,
   so non-curated database rows never contaminate the analysis.
 - The local country-indicator CSV exported from MySQL.
@@ -22,14 +22,14 @@ from django.conf import settings
 
 # Fixed historical snapshot window (inclusive dates).
 SNAPSHOT_START = date(2026, 9, 28)
-SNAPSHOT_END = date(2026, 10, 9)
-SNAPSHOT_DAYS = (SNAPSHOT_END - SNAPSHOT_START).days + 1  # 12
-SNAPSHOT_LABEL = "Historical snapshot: 28 September–9 October 2026 (12 days)"
+SNAPSHOT_END = date(2026, 10, 16)
+SNAPSHOT_DAYS = (SNAPSHOT_END - SNAPSHOT_START).days + 1  # 19
+SNAPSHOT_LABEL = "Historical snapshot: 28 September–16 October 2026 (19 days)"
 
 # Narrative Shift periods inside the snapshot.
-# Earlier: 28 September - 3 October. Later: 4 October - 9 October.
-EARLIER_PERIOD_END = date(2026, 10, 3)
-LATER_PERIOD_START = date(2026, 10, 4)
+# Earlier: 28 September - 6 October (9 days). Later: 7 - 16 October (10 days).
+EARLIER_PERIOD_END = date(2026, 10, 6)
+LATER_PERIOD_START = date(2026, 10, 7)
 
 # Data files at the project root.
 SEED_CSV_FILENAME = "seed_articles.csv"

@@ -5,8 +5,8 @@ This single module contains the local-only analysis pipeline:
 1. Article classification - rule-based deterministic keyword classification
    of news article titles into one of six core geopolitical categories.
 2. News Activity - NumPy summary of daily article counts within the fixed
-   12-day historical snapshot (28 September - 9 October 2026).
-3. Period helpers - the earlier (first 6 days) and later (last 6 days)
+   19-day historical snapshot (28 September - 16 October 2026).
+3. Period helpers - the earlier (first 9 days) and later (last 10 days)
    splits that drive both daily activity and Narrative Shift.
 4. Narrative Shift - compares the category distribution between the earlier
    and later periods using Total Variation Distance.
@@ -20,9 +20,9 @@ analysis only ever reads stored articles whose URLs appear in the seed CSV
 allowlist, within the fixed snapshot window, from MySQL.
 
 HISTORICAL SNAPSHOT WINDOW (fixed, inclusive dates):
-- Entire snapshot: 28 September - 9 October 2026 (12 days)
-- Earlier period:  28 September - 3 October (first 6 days)
-- Later period:    4 October - 9 October (last 6 days)
+- Entire snapshot: 28 September - 16 October 2026 (19 days)
+- Earlier period:  28 September - 6 October (first 9 days)
+- Later period:    7 October - 16 October (last 10 days)
 
 IMPORTANT INTERPRETATION NOTE:
 Narrative Shift measures shifts in media coverage emphasis within the
@@ -220,7 +220,7 @@ def classify_article(title: str) -> str:
 def calculate_news_activity(daily_volumes: Sequence[float]) -> dict:
     """Summarize daily article counts within the fixed snapshot window.
 
-    Uses NumPy to compute the average across the 12 calendar days, busiest
+    Uses NumPy to compute the average across the 19 calendar days, busiest
     day, and peak article count. Zero-volume days stay inside the average.
     """
     values = np.asarray(list(daily_volumes), dtype=float)
@@ -264,7 +264,7 @@ def _curated_pair_articles(country_a: Country, country_b: Country):
 
 
 def _window_periods(articles):
-    """Split the snapshot article list into the earlier 6-day and later 6-day periods."""
+    """Split the snapshot article list into the earlier 9-day and later 10-day periods."""
     return (
         [a for a in articles if WINDOW_START_DT <= a.published_at < EARLIER_END_DT],
         [a for a in articles if LATER_START_DT <= a.published_at < WINDOW_END_DT],
@@ -272,7 +272,7 @@ def _window_periods(articles):
 
 
 def _daily_article_counts(articles):
-    """Group curated publication timestamps into the 12 snapshot calendar days."""
+    """Group curated publication timestamps into the 19 snapshot calendar days."""
     date_index = pd.date_range(start=SNAPSHOT_START, end=SNAPSHOT_END, freq="D")
     timestamps = pd.to_datetime([article.published_at for article in articles], utc=True)
     if timestamps.empty:
@@ -288,16 +288,16 @@ def _daily_article_counts(articles):
 def calculate_narrative_shift(
     earlier_categories: Sequence[str],
     later_categories: Sequence[str],
-) -> dict:
-    """Calculate Narrative Shift between the earlier 6-day and later 6-day periods.
+) -> dict | None:
+    """Calculate Narrative Shift between the earlier 9-day and later 10-day periods.
 
     Narrative Shift formula:
         Total Variation Distance (TVD) = 0.5 * sum(|later_share - earlier_share|)
         Narrative Shift Score = TVD * 100 (bounded 0-100)
 
     Parameters:
-    - earlier_categories: category labels for articles in the first 6 days.
-    - later_categories:   category labels for articles in the last 6 days.
+    - earlier_categories: category labels for articles in the first 9 days.
+    - later_categories:   category labels for articles in the last 10 days.
 
     Returns dict containing:
     - categories: list of per-category dicts with shares and difference
@@ -309,8 +309,13 @@ def calculate_narrative_shift(
     - earlier_article_count: int
     - later_article_count: int
     """
-    earlier_series = pd.Series(list(earlier_categories), dtype=object)
-    later_series = pd.Series(list(later_categories), dtype=object)
+    earlier_categories = list(earlier_categories)
+    later_categories = list(later_categories)
+    if not earlier_categories or not later_categories:
+        return None
+
+    earlier_series = pd.Series(earlier_categories, dtype=object)
+    later_series = pd.Series(later_categories, dtype=object)
 
     e_counts = earlier_series.value_counts()
     l_counts = later_series.value_counts()
@@ -325,8 +330,8 @@ def calculate_narrative_shift(
         e_count = int(e_counts.get(cat, 0))
         l_count = int(l_counts.get(cat, 0))
 
-        e_share = (e_count / e_total) if e_total > 0 else (1.0 / len(CATEGORIES))
-        l_share = (l_count / l_total) if l_total > 0 else (1.0 / len(CATEGORIES))
+        e_share = e_count / e_total
+        l_share = l_count / l_total
 
         diff = l_share - e_share
         total_variation += abs(diff)
@@ -420,7 +425,7 @@ def run_country_pair_analysis(country_a: Country, country_b: Country) -> dict:
         activity = calculate_news_activity(daily_activity)
         earlier_categories = [a.category or classify_article(a.title) for a in earlier]
         later_categories = [a.category or classify_article(a.title) for a in later]
-        narrative = calculate_narrative_shift(earlier_categories, later_categories) if len(articles) >= 2 else None
+        narrative = calculate_narrative_shift(earlier_categories, later_categories) if earlier and later else None
 
     indicators_a = _country_indicators(country_a)
     indicators_b = _country_indicators(country_b)
@@ -456,7 +461,7 @@ def run_country_pair_analysis(country_a: Country, country_b: Country) -> dict:
             "window_end": SNAPSHOT_END.isoformat(),
             "source": "local",
             "data_status": data_status,
-            "narrative_status": "available" if narrative else "insufficient_data",
+            "narrative_status": "available" if narrative is not None else "insufficient_data",
             "article_count": len(articles),
             "earlier_article_count": len(earlier),
             "later_article_count": len(later),

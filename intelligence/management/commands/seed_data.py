@@ -306,6 +306,7 @@ class Command(BaseCommand):
         skipped = 0
         rejected = 0
         errors = []
+        covered_with_value = set()
 
         for row in load_indicator_rows(csv_path):
             rows_read += 1
@@ -319,6 +320,7 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
+            covered_with_value.add((iso, code))
             _, created = CountryIndicator.objects.update_or_create(
                 country=countries[iso],
                 indicator_code=code,
@@ -333,6 +335,8 @@ class Command(BaseCommand):
             else:
                 updated += 1
 
+        pruned_stale = self._prune_stale_indicators(countries, covered_with_value)
+
         if errors:
             self.stdout.write(self.style.WARNING("Indicator validation errors:"))
             for error in errors:
@@ -344,4 +348,22 @@ class Command(BaseCommand):
             "Indicator rows updated": updated,
             "Indicator rows skipped (no value/year)": skipped,
             "Indicator rows rejected": rejected,
+            "Stale indicator rows pruned": pruned_stale,
         }
+
+    def _prune_stale_indicators(self, active_countries, covered_with_value):
+        """Remove active-country indicator codes with no valid CSV observation.
+
+        The indicator CSV is authoritative for active-country code coverage. If a
+        country/code has no usable value, prune its existing observations so stale
+        values cannot appear current. Preserve all years for codes still covered
+        by a valid value, and leave inactive-country records and other tables alone.
+        """
+        active_country_ids = [country.pk for country in active_countries.values()]
+        rows = CountryIndicator.objects.filter(country_id__in=active_country_ids).select_related("country")
+        pruned = 0
+        for row in rows.iterator():
+            if (row.country.iso_code, row.indicator_code) not in covered_with_value:
+                row.delete()
+                pruned += 1
+        return pruned
