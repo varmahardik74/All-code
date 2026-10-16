@@ -58,7 +58,7 @@ There are no external API dependencies (`requests` is not used anywhere in the p
 
 ### Curated historical dataset
 
-The file `seed_articles.csv` contains 108 curated, sourced historical articles referenced by URL. Fifteen additional records published from 10–16 October 2026 have been appended, while the original 93 rows remain unchanged. The file covers the fixed snapshot window (28 September through 16 October 2026) and forms the canonical URL allowlist for analysis: only stored articles whose URL is in this file and whose pair is selected are analyzed. Nothing else in the `Article` table is used.
+The file `seed_articles.csv` contains 109 curated, sourced historical articles referenced by URL. Sixteen additional records published from 10–16 October 2026 have been appended, while the original 93 rows remain unchanged. The file covers the fixed snapshot window (28 September through 16 October 2026) and forms the canonical URL allowlist for analysis: only stored articles whose URL is in this file and whose pair is selected are analyzed. Nothing else in the `Article` table is used.
 
 The dataset covers 41 of the 45 possible unordered pairs. The project does not create placeholder rows for uncovered pairs. Full article URLs and source notes are kept in the dataset and displayed on the dashboard.
 
