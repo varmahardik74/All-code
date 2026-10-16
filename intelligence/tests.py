@@ -461,7 +461,7 @@ class LocalDataSnapshotTests(TestCase):
         expected = {
             ("IND", "CHN"): 7,
             ("ISR", "IRN"): 8,
-            ("IND", "PAK"): 6,
+            ("IND", "PAK"): 7,
             ("IRN", "USA"): 10,
             ("USA", "CHN"): 8,
             ("DEU", "RUS"): 7,
@@ -572,12 +572,12 @@ class LocalOnlyArchitectureTests(TestCase):
     def test_extended_snapshot_and_appended_article_rows(self):
         rows = _read_article_csv()
         self.assertEqual(SNAPSHOT_DAYS, 19)
-        self.assertEqual(len(rows), 108)
-        self.assertEqual([int(row["article_id"]) for row in rows], list(range(1, 109)))
+        self.assertEqual(len(rows), 109)
+        self.assertEqual([int(row["article_id"]) for row in rows], list(range(1, 110))
         added = [row for row in rows if row["published_date"] >= "2026-10-10"]
-        self.assertEqual(len(added), 15)
+        self.assertEqual(len(added), 16)
         self.assertTrue(all("2026-10-10" <= row["published_date"] <= "2026-10-16" for row in added))
-        self.assertTrue(any(row["published_date"] == "2026-10-16" for row in added))
+        self.assertEqual({row["published_date"] for row in added}, {f"2026-10-{day}" for day in range(10, 17)})
         self.assertEqual(len({row["url"] for row in rows}), len(rows))
 
     def test_external_api_modules_have_been_removed(self):
