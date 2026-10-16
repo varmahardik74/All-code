@@ -40,6 +40,7 @@ from intelligence.seeds import (
     EARLIER_PERIOD_END,
     INDICATORS_CSV_FILENAME,
     SEED_CSV_FILENAME,
+    SNAPSHOT_DAYS,
     SNAPSHOT_END,
     SNAPSHOT_START,
 )
@@ -212,6 +213,40 @@ class SeedDataCommandTests(TestCase):
         article_path.unlink(missing_ok=True)
         indicator_path.unlink(missing_ok=True)
 
+    def test_prunes_indicator_code_absent_from_authoritative_csv(self):
+        call_command("seed_data")
+        usa = Country.objects.get(iso_code="USA")
+        self.assertTrue(CountryIndicator.objects.filter(country=usa, indicator_code="NY.GDP.MKTP.CD").exists())
+        rows = [row for row in _read_indicator_csv() if not (row["iso_code"] == "USA" and row["indicator_code"] == "NY.GDP.MKTP.CD")]
+        path = self._write_indicator_rows(rows)
+        try:
+            call_command("seed_data", indicators=str(path))
+            self.assertFalse(CountryIndicator.objects.filter(country=usa, indicator_code="NY.GDP.MKTP.CD").exists())
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_prunes_indicator_code_with_only_blank_csv_values(self):
+        call_command("seed_data")
+        usa = Country.objects.get(iso_code="USA")
+        rows = _read_indicator_csv()
+        for row in rows:
+            if row["iso_code"] == "USA" and row["indicator_code"] == "NY.GDP.MKTP.CD":
+                row["value"] = ""
+        path = self._write_indicator_rows(rows)
+        try:
+            call_command("seed_data", indicators=str(path))
+            self.assertFalse(CountryIndicator.objects.filter(country=usa, indicator_code="NY.GDP.MKTP.CD").exists())
+        finally:
+            path.unlink(missing_ok=True)
+
+    def _write_indicator_rows(self, rows):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8", newline="")
+        with handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        return Path(handle.name)
+
     def _write_article_csv(self, pair_info):
         pair_key, iso_a, iso_b = pair_info.split(",")
         handle = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8", newline="")
@@ -252,7 +287,7 @@ class HomePageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Between Nations")
         self.assertContains(response, "intelligence/css/styles.css")
-        self.assertContains(response, "12-day historical snapshot")
+        self.assertContains(response, "19-day historical snapshot")
 
     def test_dropdowns_contain_seeded_countries(self):
         response = self.client.get("/")
@@ -285,7 +320,7 @@ class HomePageTests(TestCase):
         self.assertContains(response, "United States")
         self.assertContains(response, "China")
         self.assertContains(response, "HISTORICAL SNAPSHOT")
-        self.assertContains(response, "28 September–9 October 2026 (12 days)")
+        self.assertContains(response, "28 September–16 October 2026 (19 days)")
 
 
 # =========================================================================
@@ -320,6 +355,12 @@ class NarrativeServiceTests(TestCase):
         self.assertEqual(res_disjoint["largest_positive_shift"], "Border / Conflict")
         self.assertEqual(res_disjoint["largest_negative_shift"], "Diplomacy")
 
+    def test_narrative_returns_none_when_earlier_period_is_empty(self):
+        self.assertIsNone(calculate_narrative_shift([], ["Diplomacy"]))
+
+    def test_narrative_returns_none_when_later_period_is_empty(self):
+        self.assertIsNone(calculate_narrative_shift(["Diplomacy"], []))
+
     def test_narrative_distribution_pandas(self):
         base = ["Diplomacy"] * 8 + ["Trade / Economy"] * 2
         recent = ["Diplomacy"] * 4 + ["Security / Military"] * 6
@@ -338,7 +379,7 @@ class ScoringServiceTests(TestCase):
 
         counts = _daily_article_counts(articles)
 
-        self.assertEqual(len(counts), 12)
+        self.assertEqual(len(counts), 19)
         self.assertEqual(sum(counts), 3.0)
         self.assertEqual(max(counts), 2.0)
         self.assertEqual(counts[3], 2.0)  # 1 October
@@ -354,8 +395,8 @@ class ScoringServiceTests(TestCase):
 class ChartGenerationTests(TestCase):
     def test_all_charts_return_valid_png_bytes(self):
         df = pd.DataFrame({
-            "date": pd.date_range(SNAPSHOT_START, periods=12, freq="D"),
-            "volume": [1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2],
+            "date": pd.date_range(SNAPSHOT_START, periods=19, freq="D"),
+            "volume": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
         })
         png_timeline = generate_activity_timeline_chart(df, "India", "China")
         self.assertTrue(png_timeline.startswith(b"\x89PNG"))
@@ -418,13 +459,13 @@ class LocalDataSnapshotTests(TestCase):
 
     def test_priority_pair_counts(self):
         expected = {
-            ("IND", "CHN"): 6,
+            ("IND", "CHN"): 7,
             ("ISR", "IRN"): 8,
-            ("IND", "PAK"): 5,
-            ("IRN", "USA"): 8,
-            ("USA", "CHN"): 6,
-            ("DEU", "RUS"): 4,
-            ("GBR", "RUS"): 5,
+            ("IND", "PAK"): 6,
+            ("IRN", "USA"): 10,
+            ("USA", "CHN"): 8,
+            ("DEU", "RUS"): 7,
+            ("GBR", "RUS"): 6,
             ("GBR", "USA"): 5,
         }
         for (iso_a, iso_b), count in expected.items():
@@ -436,17 +477,17 @@ class LocalDataSnapshotTests(TestCase):
                 self.assertEqual(len(rows), count)
                 self.assertEqual(result["metadata"]["article_count"], count)
 
-    def test_news_activity_uses_twelve_day_denominator(self):
+    def test_news_activity_uses_nineteen_day_denominator(self):
         india = Country.objects.get(iso_code="IND")
         china = Country.objects.get(iso_code="CHN")
         rows, _, _ = _pair_articles_expected({"IND", "CHN"})
         result = run_country_pair_analysis(india, china)
         daily = result["news_activity"]["daily_article_count"]
-        self.assertEqual(len(daily), 12)
+        self.assertEqual(len(daily), 19)
         self.assertEqual(sum(daily), len(rows))
         self.assertAlmostEqual(
             result["news_activity"]["average_articles_per_day"],
-            len(rows) / 12,
+            len(rows) / 19,
             places=2,
         )
 
@@ -460,6 +501,23 @@ class LocalDataSnapshotTests(TestCase):
         self.assertEqual(narrative["earlier_article_count"], len(earlier))
         self.assertEqual(narrative["later_article_count"], len(later))
         self.assertEqual(narrative["earlier_article_count"] + narrative["later_article_count"], len(rows))
+
+    def test_narrative_shift_is_unavailable_when_pair_has_only_earlier_articles(self):
+        china = Country.objects.get(iso_code="CHN")
+        germany = Country.objects.get(iso_code="DEU")
+        rows, earlier, later = _pair_articles_expected({"CHN", "DEU"})
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(earlier)
+        self.assertFalse(later)
+        result = run_country_pair_analysis(china, germany)
+        self.assertIsNone(result["narrative_shift"])
+        self.assertEqual(result["metadata"]["narrative_status"], "insufficient_data")
+
+    def test_dashboard_hides_shift_metrics_for_one_period_pair(self):
+        response = self.client.get("/compare/CHN/DEU/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "SHIFT SCORE")
+        self.assertNotContains(response, "LATER DOMINANT")
 
     def test_uncovered_pair_is_honest_no_data(self):
         china = Country.objects.get(iso_code="CHN")
@@ -497,7 +555,7 @@ class LocalDataSnapshotTests(TestCase):
         run = AnalysisRun.objects.get(country_a=usa, country_b=chn)
         self.assertEqual(run.result_json["metadata"]["data_status"], "success_with_data")
         self.assertEqual(run.result_json["metadata"]["source"], "local")
-        self.assertEqual(run.result_json["metadata"]["analysis_window_days"], 12)
+        self.assertEqual(run.result_json["metadata"]["analysis_window_days"], 19)
 
     def test_metadata_has_no_live_mode_keys(self):
         usa = Country.objects.get(iso_code="USA")
@@ -507,10 +565,21 @@ class LocalDataSnapshotTests(TestCase):
         self.assertNotIn("geopolitical_data_available", result["metadata"])
         self.assertNotIn("news_data_mode", result["metadata"])
         self.assertEqual(result["metadata"]["window_start"], "2026-09-28")
-        self.assertEqual(result["metadata"]["window_end"], "2026-10-09")
+        self.assertEqual(result["metadata"]["window_end"], "2026-10-16")
 
 
 class LocalOnlyArchitectureTests(TestCase):
+    def test_extended_snapshot_and_appended_article_rows(self):
+        rows = _read_article_csv()
+        self.assertEqual(SNAPSHOT_DAYS, 19)
+        self.assertEqual(len(rows), 108)
+        self.assertEqual([int(row["article_id"]) for row in rows], list(range(1, 109)))
+        added = [row for row in rows if row["published_date"] >= "2026-10-10"]
+        self.assertEqual(len(added), 15)
+        self.assertTrue(all("2026-10-10" <= row["published_date"] <= "2026-10-16" for row in added))
+        self.assertTrue(any(row["published_date"] == "2026-10-16" for row in added))
+        self.assertEqual(len({row["url"] for row in rows}), len(rows))
+
     def test_external_api_modules_have_been_removed(self):
         with self.assertRaises(ModuleNotFoundError):
             importlib.import_module("intelligence.gdelt")
