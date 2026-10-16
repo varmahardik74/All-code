@@ -573,7 +573,7 @@ class LocalOnlyArchitectureTests(TestCase):
         rows = _read_article_csv()
         self.assertEqual(SNAPSHOT_DAYS, 19)
         self.assertEqual(len(rows), 109)
-        self.assertEqual([int(row["article_id"]) for row in rows], list(range(1, 110))
+        self.assertEqual([int(row["article_id"]) for row in rows], list(range(1, 110)))
         added = [row for row in rows if row["published_date"] >= "2026-10-10"]
         self.assertEqual(len(added), 16)
         self.assertTrue(all("2026-10-10" <= row["published_date"] <= "2026-10-16" for row in added))
