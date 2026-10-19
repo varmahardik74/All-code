@@ -124,9 +124,9 @@ Important files:
 - `config/settings.py` - Django and MySQL configuration.
 - `intelligence/models.py` - countries, articles, indicators, and analysis runs.
 - `intelligence/forms.py` - active-country selection and duplicate validation.
-- `intelligence/management/commands/seed_data.py` - one idempotent command that seeds the 10 country universe, imports `seed_articles.csv`, and imports `country_indicators.csv`. Running it twice creates no duplicates and deletes nothing.
+- `intelligence/management/commands/seed_data.py` - one idempotent command that seeds the 10 country universe, imports `seed_articles.csv`, and syncs `country_indicators.csv` (covered observations are inserted/updated and active-country observations missing from the CSV are pruned). Running it twice creates no duplicates, and unrelated records (other tables, inactive countries, and still-covered codes for all years) are preserved.
 - `intelligence/management/commands/analyze_pair.py` - manual pair analysis from the local snapshot.
-- `intelligence/analysis.py` - the complete local analysis pipeline in one file: article classification, NumPy News Activity summaries with Pandas date grouping, the earlier/later 6-6 day split, Narrative Shift via total variation distance, and the snapshot orchestration function.
+- `intelligence/analysis.py` - the complete local analysis pipeline in one file: article classification, NumPy News Activity summaries with Pandas date grouping, the earlier/later nine-day and ten-day split, Narrative Shift via total variation distance, and the snapshot orchestration function.
 - `intelligence/pairs.py` - deterministic unordered pair-key and pair-query helpers.
 - `intelligence/seeds.py` - single source of truth for the fixed snapshot window, the article-URL allowlist, the canonical indicator codes, and both CSV loaders.
 - `intelligence/charts.py` - Matplotlib chart generation.
