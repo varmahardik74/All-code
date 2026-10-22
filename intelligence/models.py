@@ -89,3 +89,11 @@ class AnalysisRun(models.Model):
 
     def __str__(self):
         return f"{self.country_a.iso_code} vs {self.country_b.iso_code}"
+
+
+def unordered_pair_q(country_a, country_b):
+    """Filter matching articles stored in either country order (A-B = B-A)."""
+    return (
+        models.Q(country_a=country_a, country_b=country_b)
+        | models.Q(country_a=country_b, country_b=country_a)
+    )

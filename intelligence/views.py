@@ -1,29 +1,47 @@
-import base64
+"""Web layer: comparison form and the two dashboard pages."""
 
-import pandas as pd
 import logging
+
+from django import forms
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .analysis import run_country_pair_analysis
-from .charts import (
-    generate_activity_timeline_chart,
-    generate_indicator_comparison_chart,
-    generate_narrative_chart,
-)
-from .forms import ComparisonForm
 from .models import Country
-from .seeds import CANONICAL_INDICATORS, SNAPSHOT_END, SNAPSHOT_START
+from .seed import CANONICAL_INDICATORS
 
 logger = logging.getLogger(__name__)
+
+
+class ComparisonForm(forms.Form):
+    country_a = forms.ModelChoiceField(
+        queryset=Country.objects.filter(is_active=True),
+        label="Country A",
+        empty_label="Select a country",
+    )
+    country_b = forms.ModelChoiceField(
+        queryset=Country.objects.filter(is_active=True),
+        label="Country B",
+        empty_label="Select a country",
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        country_a = cleaned.get("country_a")
+        country_b = cleaned.get("country_b")
+        if country_a and country_b and country_a.pk == country_b.pk:
+            raise forms.ValidationError("Select two different countries.")
+        return cleaned
 
 
 def home(request):
     if request.method == "POST":
         form = ComparisonForm(request.POST)
         if form.is_valid():
-            country_a = form.cleaned_data["country_a"]
-            country_b = form.cleaned_data["country_b"]
-            return redirect("comparison", iso_a=country_a.iso_code, iso_b=country_b.iso_code)
+            return redirect(
+                "comparison",
+                iso_a=form.cleaned_data["country_a"].iso_code,
+                iso_b=form.cleaned_data["country_b"].iso_code,
+            )
     else:
         form = ComparisonForm()
     return render(request, "intelligence/home.html", {"form": form})
@@ -38,41 +56,32 @@ def comparison(request, iso_a, iso_b):
         return render(request, "intelligence/home.html", {"form": form}, status=400)
     try:
         result = run_country_pair_analysis(country_a, country_b)
-        activity = result["news_activity"]
-        dates = pd.date_range(start=SNAPSHOT_START, end=SNAPSHOT_END, freq="D")
-        full_series = activity.get("daily_article_count") if activity else None
-        if full_series is None:
-            full_series = [0] * len(dates)
-        else:
-            full_series = list(full_series) + [0] * max(0, len(dates) - len(full_series))
-        timeline = pd.DataFrame({"date": dates, "volume": full_series[: len(dates)]})
-        charts = {
-            "activity": _chart_data(generate_activity_timeline_chart(timeline, country_a.name, country_b.name)) if result["metadata"].get("data_status") != "success_no_data" else None,
-            "narrative": _chart_data(generate_narrative_chart(result["narrative_shift"], country_a.name, country_b.name)) if result["narrative_shift"] else None,
-            "indicators": _chart_data(generate_indicator_comparison_chart(result["indicators"].get(country_a.iso_code, {}), result["indicators"].get(country_b.iso_code, {}), country_a.name, country_b.name)),
-        }
         indicators_a = result["indicators"].get(country_a.iso_code, {})
         indicators_b = result["indicators"].get(country_b.iso_code, {})
-        indicator_rows = []
-        for code in CANONICAL_INDICATORS:
-            item_a = indicators_a.get(code, {})
-            item_b = indicators_b.get(code, {})
-            indicator_rows.append({
-                "name": item_a.get("indicator_name", code),
-                "a": item_a,
-                "b": item_b,
-                "a_display": _format_indicator(code, item_a.get("value")),
-                "b_display": _format_indicator(code, item_b.get("value")),
-            })
-        context = {"country_a": country_a, "country_b": country_b, "result": result, "charts": charts, "indicator_rows": indicator_rows}
+        indicator_rows = [
+            {
+                "name": indicators_a.get(code, {}).get("indicator_name", code),
+                "a": indicators_a.get(code, {}),
+                "b": indicators_b.get(code, {}),
+                "a_display": _format_indicator(code, indicators_a.get(code, {}).get("value")),
+                "b_display": _format_indicator(code, indicators_b.get(code, {}).get("value")),
+            }
+            for code in CANONICAL_INDICATORS
+        ]
+        context = {
+            "country_a": country_a,
+            "country_b": country_b,
+            "result": result,
+            "indicator_rows": indicator_rows,
+        }
     except Exception:
         logger.exception("Unable to render comparison dashboard")
-        context = {"country_a": country_a, "country_b": country_b, "error": "The analysis is temporarily unavailable. Please try again."}
+        context = {
+            "country_a": country_a,
+            "country_b": country_b,
+            "error": "The analysis is temporarily unavailable. Please try again.",
+        }
     return render(request, "intelligence/comparison.html", context)
-
-
-def _chart_data(content):
-    return base64.b64encode(content).decode("ascii")
 
 
 def _format_indicator(code, value):

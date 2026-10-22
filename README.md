@@ -42,7 +42,7 @@ The active selectable universe contains exactly these ten countries:
 | Pakistan | PAK |
 | Israel | ISR |
 
-The seed command deactivates legacy country rows instead of deleting them, so historical article and analysis records are preserved while removed countries no longer appear in the form.
+The importer deactivates legacy country rows instead of deleting them, so historical article and analysis records are preserved while removed countries no longer appear in the form.
 
 ## Technology stack
 
@@ -50,7 +50,6 @@ The seed command deactivates legacy country rows instead of deleting them, so hi
 - MySQL with Django ORM
 - Pandas for date grouping and narrative distributions
 - NumPy for News Activity summary calculations
-- Matplotlib for in-memory PNG charts
 
 There are no external API dependencies (`requests` is not used anywhere in the project).
 
@@ -65,12 +64,12 @@ The dataset covers 41 of the 45 possible unordered pairs. The project does not c
 Import it with:
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py seed_data
+.\.venv\Scripts\python.exe -m intelligence.seed
 ```
 
 ### Locally exported indicators
 
-The file `country_indicators.csv` contains the country indicators exported from the local database (100 rows: 10 indicators per active country). Importing it with `seed_data` uses `update_or_create` and never fabricates values. The CSV is authoritative for active-country indicator coverage: if a country/indicator code has no usable CSV value, its stale active-country observations are pruned so an old value is not shown as current. All years for still-covered codes and inactive-country records are preserved. Missing observations render as `N/A`, never as zero.
+The file `country_indicators.csv` contains the country indicators exported from the local database (100 rows: 10 indicators per active country). The importer (`python -m intelligence.seed`) uses `update_or_create` and never fabricates values. The CSV is authoritative for active-country indicator coverage: if a country/indicator code has no usable CSV value, its stale active-country observations are pruned so an old value is not shown as current. All years for still-covered codes and inactive-country records are preserved. Missing observations render as `N/A`, never as zero.
 
 ### News Activity
 
@@ -117,21 +116,18 @@ Indicator values are country-level observations, separate from the media snapsho
 
 The comparison flow is entirely local:
 
-`Django form -> comparison view -> analysis (local Article rows via seed URL allowlist within the 19-day window) -> local activity/narrative calculations -> local CountryIndicator rows -> AnalysisRun -> template and charts`
+`Django form -> comparison view -> analysis (local Article rows via seed URL allowlist within the 19-day window) -> local activity/narrative calculations -> local CountryIndicator rows -> AnalysisRun -> template`
 
-Important files:
+Important files — the codebase is intentionally small (four core modules in two folders):
 
 - `config/settings.py` - Django and MySQL configuration.
-- `intelligence/models.py` - countries, articles, indicators, and analysis runs.
-- `intelligence/forms.py` - active-country selection and duplicate validation.
-- `intelligence/management/commands/seed_data.py` - one idempotent command that seeds the 10 country universe, imports `seed_articles.csv`, and syncs `country_indicators.csv` (covered observations are inserted/updated and active-country observations missing from the CSV are pruned). Running it twice creates no duplicates, and unrelated records (other tables, inactive countries, and still-covered codes for all years) are preserved.
-- `intelligence/management/commands/analyze_pair.py` - manual pair analysis from the local snapshot.
+- `config/urls.py` - Django admin plus the two project routes (`/` and `/compare/<iso_a>/<iso_b>/`) wired directly to the views.
+- `intelligence/models.py` - the four tables (countries, articles, indicators, analysis runs) and the `unordered_pair_q()` helper that makes A–B and B–A identical.
+- `intelligence/seed.py` - single source of truth for the fixed snapshot window, the canonical indicator codes, the CSV loaders, and the idempotent importer: seeds the 10-country universe, imports `seed_articles.csv`, and syncs `country_indicators.csv` (covered observations are inserted/updated and active-country observations missing from the CSV are pruned). Running it twice creates no duplicates, and unrelated records (other tables, inactive countries, and still-covered codes for all years) are preserved. It is also runnable standalone as `python -m intelligence.seed`.
 - `intelligence/analysis.py` - the complete local analysis pipeline in one file: article classification, NumPy News Activity summaries with Pandas date grouping, the earlier/later nine-day and ten-day split, Narrative Shift via total variation distance, and the snapshot orchestration function.
-- `intelligence/pairs.py` - deterministic unordered pair-key and pair-query helpers.
-- `intelligence/seeds.py` - single source of truth for the fixed snapshot window, the article-URL allowlist, the canonical indicator codes, and both CSV loaders.
-- `intelligence/charts.py` - Matplotlib chart generation.
-- `intelligence/views.py` and `intelligence/templates/intelligence/` - existing page flow and presentation.
-- `intelligence/tests.py` - local data-driven tests, snapshot-behavior tests, and rendering tests.
+- `intelligence/views.py` - the `ComparisonForm`, both pages (form flow, DB fetch, analysis call, indicator formatting, error state).
+- `intelligence/templates/intelligence/` and `intelligence/static/intelligence/` - page templates, full CSS styling, and the small home-page JS.
+- `intelligence/tests.py` - 8 data-driven tests: dataset import idempotency, validation rejection, stale-indicator pruning, classification, Narrative Shift, coverage honesty, curated allowlist, and page rendering.
 
 The main database models are:
 
@@ -159,7 +155,7 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env
 python manage.py migrate
-python manage.py seed_data
+python -m intelligence.seed
 python manage.py check
 ```
 
@@ -179,7 +175,7 @@ Start the server with:
 
 Then open `http://127.0.0.1:8000/`.
 
-## Testing and manual analysis
+## Testing and data re-sync
 
 No external APIs are called, so tests are fully local and data-driven from the same CSVs the dashboard uses. Run:
 
@@ -188,13 +184,13 @@ No external APIs are called, so tests are fully local and data-driven from the s
 .\.venv\Scripts\python.exe manage.py test
 ```
 
-For a manual pair analysis:
+To re-sync the dataset from the root CSVs (idempotent — safe to run repeatedly):
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py analyze_pair IND CHN
+.\.venv\Scripts\python.exe -m intelligence.seed
 ```
 
-Manual runs read the curated snapshot and local indicator rows from MySQL. Pairs with no verified articles (for example CHN-ISR) are reported honestly as no-data rather than filled in.
+The dashboard reads the same curated snapshot and local indicator rows from MySQL. Pairs with no verified articles (for example CHN-ISR) are reported honestly as no-data rather than filled in.
 
 ## Known limitations and future ideas
 

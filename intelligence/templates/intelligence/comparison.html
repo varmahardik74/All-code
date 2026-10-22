@@ -47,7 +47,7 @@
                 <div><small>AVERAGE ARTICLES / DAY</small><strong>{{ result.news_activity.average_articles_per_day }}</strong></div>
                 <div><small>BUSIEST DAY</small><strong class="text-value">Day {{ result.news_activity.peak_day }}</strong></div>
                 <div><small>PEAK ARTICLE COUNT</small><strong class="text-value">{{ result.news_activity.peak_article_count }}</strong></div>
-            </div><div class="chart-card"><img src="data:image/png;base64,{{ charts.activity }}" alt="Nineteen-day news activity timeline"></div>{% endif %}
+            </div>{% endif %}
         </section>
 
         <section class="analysis-section" aria-labelledby="narrative-title">
@@ -59,7 +59,7 @@
                 <div><small>LARGEST SHIFT</small><strong>{{ result.narrative_shift.largest_positive_shift }}</strong></div>
                 <div><small>SHIFT SCORE</small><strong>{{ result.narrative_shift.shift_score|floatformat:1 }}<em>/100</em></strong></div>
             </div><div class="split-labels"><span>FIRST 9 DAYS</span><span>LAST 10 DAYS</span></div>
-            {% if charts.narrative %}<div class="chart-card"><img src="data:image/png;base64,{{ charts.narrative }}" alt="Narrative Shift comparison chart"></div>{% endif %}{% else %}<p class="empty">Narrative Shift is unavailable because there is not enough valid coverage data.</p>{% endif %}
+            {% else %}<p class="empty">Narrative Shift is unavailable because there is not enough valid coverage data.</p>{% endif %}
         </section>
 
         <section class="analysis-section" aria-labelledby="country-title">
@@ -69,7 +69,6 @@
                 <div class="indicator-row indicator-head" role="row"><span>INDICATOR</span><span>{{ country_a.name|upper }}</span><span>{{ country_b.name|upper }}</span></div>
                 {% for row in indicator_rows %}<div class="indicator-row" role="row"><span>{{ row.name }}</span><span>{{ row.a_display }}{% if row.a.value is not None %} <small>{{ row.a.year }}</small>{% endif %}</span><span>{{ row.b_display }}{% if row.b.value is not None %} <small>{{ row.b.year }}</small>{% endif %}</span></div>{% endfor %}
             </div>
-            <div class="chart-card indicator-chart"><img src="data:image/png;base64,{{ charts.indicators }}" alt="Country indicator comparison chart"></div>
         </section>
     {% endif %}
     <footer class="site-footer"><span>BETWEEN NATIONS</span><span>LOCAL HISTORICAL SNAPSHOT · 28 SEP – 16 OCT 2026</span></footer>
